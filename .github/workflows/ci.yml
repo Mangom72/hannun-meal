@@ -36,7 +36,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Install Android SDK packages
-        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+        run: bash scripts/ensure_android_sdk.sh
       - name: Verify without signing credentials
         run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
       - name: Python release tooling tests

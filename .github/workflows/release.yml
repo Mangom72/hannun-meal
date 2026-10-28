@@ -32,7 +32,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Install Android SDK packages
-        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+        run: bash scripts/ensure_android_sdk.sh
       - name: Validate release version
         id: version
         run: |
