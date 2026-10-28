@@ -1,0 +1,7 @@
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+ android:minWidth="250dp" android:minHeight="180dp" android:minResizeWidth="110dp" android:minResizeHeight="110dp"
+ android:targetCellWidth="4" android:targetCellHeight="3"
+ android:updatePeriodMillis="0" android:initialLayout="@layout/widget_preview_daily" android:previewLayout="@layout/widget_preview_daily"
+ android:previewImage="@drawable/widget_preview_daily"
+ android:configure="kr.han.meal.widget.WidgetConfigActivity" android:widgetFeatures="reconfigurable"
+ android:resizeMode="horizontal|vertical" android:widgetCategory="home_screen" android:description="@string/daily_description" />

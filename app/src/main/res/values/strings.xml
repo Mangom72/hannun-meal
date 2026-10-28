@@ -1,0 +1,7 @@
+<resources>
+<string name="app_name">한눈급식</string><string name="next_widget">한눈급식 · 다음 급식</string><string name="daily_widget">한눈급식 · 하루 급식</string><string name="selected_widget">한눈급식 · 주간 선택 급식</string><string name="all_widget">한눈급식 · 주간 전체 급식</string>
+<string name="next_description">시간 규칙에 맞는 다음 급식과 남은 시간</string><string name="daily_description">하루의 조식·중식·석식 한눈에</string><string name="selected_description">선택한 식사의 주간 메뉴와 등교일 5일</string><string name="all_description">일주일의 모든 식사 요약</string>
+<string name="previous_meal">이전 급식 또는 날짜</string><string name="next_meal">다음 급식 또는 날짜</string><string name="automatic_mode">자동 일정으로 복귀</string><string name="refresh_meals">급식 동기화</string><string name="widget_settings">이 위젯 설정</string>
+<color name="icon_background">#123F32</color>
+<style name="Theme.Hannun" parent="android:style/Theme.Material.Light.NoActionBar"><item name="android:fontFamily">sans</item><item name="android:windowLightStatusBar">true</item><item name="android:windowActionModeOverlay">true</item></style>
+</resources>

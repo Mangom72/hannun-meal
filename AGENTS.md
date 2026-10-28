@@ -1,0 +1,14 @@
+# 한눈급식 개발 안내
+- Kotlin, Compose Material 3, minSdk 26. 앱은 HTTPS Worker API와 Pages 학교 목록만 호출하며 NEIS 키는 Worker/Actions Secrets에만 둔다.
+- 선택 엔진은 Android 의존 없이 유지하고 Asia/Seoul 및 주입된 Clock을 사용한다.
+- 캐시 미확인·확정 결식·요청 실패를 구분한다. 실패 시 유효한 캐시를 삭제하지 않는다.
+- 위젯 설정은 ID 단위로 저장한다. 렌더링에서 네트워크를 호출하지 않는다.
+- API 키를 커밋하거나 로그에 출력하지 않는다. local.properties/neis.properties는 Git 제외 대상이다.
+- 검증: ./gradlew testDebugUnitTest lintDebug assembleDebug; npm --prefix backend test; npm --prefix backend run check
+- 전국 학교 목록은 scripts/sync_school_directory.py로 생성하며 실패 시 기존 Pages 배포를 유지한다.
+- 공개 동작을 변경할 때 경계값 또는 회귀 테스트를 추가한다.
+- 정식 서명 키는 .signing/ 및 GitHub Actions Secrets에서만 관리한다. 기존 키를 교체·재생성하지 않는다.
+- 업데이트용 GitHub 읽기 토큰을 APK/로그에 넣지 않는다. CDN redirect로 인증 헤더를 전달하지 않는다.
+- 설치 전 패키지·버전·SDK·SHA-256·기존 앱 서명을 모두 확인한다. 무인 설치를 약속하지 않는다.
+- 배포 도구 검증: python3 -m unittest discover -s scripts/tests -v
+- LOCAL_HANDOFF.md가 있는 로컬 이전본에서는 먼저 읽어 기존 맥락·검증·미완료 작업을 복원한다.

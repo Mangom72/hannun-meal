@@ -1,0 +1,3 @@
+# Public service defaults. Developer overrides belong in Git-ignored backend.properties.
+MEAL_API_BASE_URL=https://hannun-meal-api.mangom72.workers.dev
+SCHOOL_DIRECTORY_BASE_URL=https://mangom72.github.io/hannun-meal-schools/

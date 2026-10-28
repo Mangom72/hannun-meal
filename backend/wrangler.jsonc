@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hannun-meal-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-27",
+  "workers_dev": true,
+  "send_metrics": false,
+  "vars": {
+    "ALLOWED_ORIGINS": "[]",
+    "TTL_CURRENT": "3600",
+    "TTL_NEXT": "21600",
+    "TTL_HISTORY": "604800",
+    "TTL_EMPTY": "900",
+    "SWR_SECONDS": "300",
+    "STALE_IF_ERROR_SECONDS": "86400",
+    "MIN_YEAR": "2020",
+    "MAX_FUTURE_MONTHS": "2"
+  },
+  "ratelimits": [
+    {"name":"CLIENT_LIMITER","namespace_id":"72001","simple":{"limit":120,"period":60}},
+    {"name":"UPSTREAM_LIMITER","namespace_id":"72002","simple":{"limit":20,"period":60}}
+  ],
+  "observability": {
+    "enabled": true,
+    "redact_query_string": true,
+    "logs": {"enabled":true,"invocation_logs":false,"head_sampling_rate":1},
+    "traces": {"enabled":false}
+  }
+}
