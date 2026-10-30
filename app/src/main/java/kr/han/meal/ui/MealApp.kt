@@ -20,6 +20,8 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -58,38 +60,54 @@ data class DetailTarget(val date: LocalDate,val type: MealType,val school: Strin
         if(initialDate!=null && initialType!=null) runCatching { DetailTarget(LocalDate.parse(initialDate),MealType.valueOf(initialType),initialSchool ?: p.school?.id.orEmpty()) }.getOrNull()?.let { detail=it }
     }
     LaunchedEffect(selected) { (selected as? Selection.NeedsData)?.let { vm.ensureRange(it.date,it.date.plusDays(20)) } }
-    BackHandler(enabled=detail==null && page in listOf("school","schedule","appearance","data","updates")) {page="settings"}
+    var history by rememberSaveable {mutableStateOf(listOf<String>())}
+    val savedPages=rememberSaveableStateHolder()
+    fun navigate(target:String) {if(target!=page) {history=history+page;page=target}}
+    fun back() {page=history.lastOrNull() ?: "home";history=history.dropLast(1)}
+    fun destination(target:String) {history=emptyList();page=target}
+    val primary=listOf(Triple("home","오늘",Icons.Outlined.Home),Triple("weekly","주간",Icons.Outlined.DateRange),Triple("settings","설정",Icons.Outlined.Settings))
+    val isRoot=page in primary.map {it.first}
+    val activeRoot=navigationRoot(page,history)
+    BackHandler(enabled=detail==null && (!isRoot || page!="home")) {if(history.isNotEmpty()) back() else destination("home")}
     MealTheme(p) {
-        Scaffold(
-            snackbarHost={ SnackbarHost(snack) },
-            topBar={ TopAppBar(title={ if(page in listOf("home","weekly") && (if(page=="weekly") weeklyPreferences.school else p.school)!=null) SchoolToolbarTitle((if(page=="weekly") weeklyPreferences.school else p.school)!!,p.fontScale,caption=if(page=="weekly") "주간 급식" else "한눈급식") {page="school"} else Text(when(page) { "home"->"한눈급식";"weekly"->"주간 급식";"widgets"->"내 위젯";"school"->"학교 선택";"schedule"->"자동 전환";"appearance"->"화면 꾸미기";"data"->"데이터와 개인정보";"updates"->"앱 업데이트";else->"설정" },fontWeight=FontWeight.Bold) },
-                navigationIcon={ if(page in listOf("home","weekly")) IconButton(onClick={page="school"}) {Icon(AppIcons.School,"학교 변경",tint=MaterialTheme.colorScheme.primary)} else if(page in listOf("school","schedule","appearance","data","updates")) IconButton(onClick={ page="settings" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack,"뒤로") } },
-                actions={ if(page in listOf("home","weekly")) IconButton(onClick=vm::refresh,enabled=!busy) { Icon(Icons.Outlined.Refresh,"급식 새로고침") } }) },
-            bottomBar={ NavigationBar(containerColor=MaterialTheme.colorScheme.surfaceContainerLow) {
-                listOf(Triple("home","오늘",Icons.Outlined.Home),Triple("weekly","주간",Icons.Outlined.DateRange),Triple("widgets","위젯",AppIcons.Widgets),Triple("settings","설정",Icons.Outlined.Settings)).forEach { (key,label,icon) ->
-                    NavigationBarItem(selected=page==key || (key=="settings" && page in listOf("school","schedule","appearance","data","updates")),onClick={page=key},icon={Icon(icon,null)},label={Text(label)})
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val rail=maxWidth>=720.dp
+            Row(Modifier.fillMaxSize()) {
+                if(rail) NavigationRail(Modifier.fillMaxHeight(),containerColor=MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Spacer(Modifier.height(24.dp))
+                    primary.forEach {(key,label,icon)->NavigationRailItem(selected=activeRoot==key,onClick={destination(key)},icon={Icon(icon,null)},label={Text(label)},modifier=Modifier.padding(vertical=8.dp))}
                 }
-            } }
-        ) { insets ->
-            Column(Modifier.padding(insets).fillMaxSize()) {
-                if(busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                if(!online) Surface(color=MaterialTheme.colorScheme.secondaryContainer) {Text("오프라인 · 저장된 급식을 표시합니다",Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=6.dp),style=MaterialTheme.typography.labelMedium)}
-                if(updateState.snapshot.candidate!=null && page!="updates") Surface(color=MaterialTheme.colorScheme.primaryContainer) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal=20.dp),verticalAlignment=Alignment.CenterVertically) {
-                        Text("새 버전 ${updateState.snapshot.candidate!!.manifest.versionName}",Modifier.weight(1f),style=MaterialTheme.typography.labelLarge)
-                        TextButton(onClick={page="updates"}) {Text("업데이트")}
+                Scaffold(modifier=Modifier.weight(1f),snackbarHost={SnackbarHost(snack)},
+                    topBar={TopAppBar(title={
+                        if(page in listOf("home","weekly") && (if(page=="weekly") weeklyPreferences.school else p.school)!=null)
+                            SchoolToolbarTitle((if(page=="weekly") weeklyPreferences.school else p.school)!!,p.fontScale,caption=if(page=="weekly") "주간 급식" else "한눈급식") {navigate("school")}
+                        else Text(when(page) {"home"->"한눈급식";"weekly"->"주간 급식";"widgets"->"위젯";"school"->"학교 선택";"schedule"->"자동 전환";"appearance"->"화면 설정";"data"->"데이터와 개인정보";"updates"->"앱 업데이트";else->"설정"},style=MaterialTheme.typography.titleLarge)
+                    },navigationIcon={if(!isRoot) IconButton(onClick=::back) {Icon(Icons.AutoMirrored.Filled.ArrowBack,"뒤로")}},actions={
+                        if(page in listOf("home","weekly")) IconButton(onClick=vm::refresh,enabled=!busy) {Icon(Icons.Outlined.Refresh,"급식 새로고침")}
+                    })},bottomBar={if(!rail) NavigationBar(containerColor=MaterialTheme.colorScheme.surfaceContainerLow) {
+                        primary.forEach {(key,label,icon)->NavigationBarItem(selected=activeRoot==key,onClick={destination(key)},icon={Icon(icon,null)},label={Text(label)})}
+                    }}
+                ) {insets->
+                    ReadingPane(if(page in listOf("home","weekly","widgets")) MealLayout.expandedWidth else MealLayout.settingsWidth) {
+                        Column(Modifier.padding(insets).fillMaxSize()) {
+                            if(busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                            if(!online) Surface(color=MaterialTheme.colorScheme.secondaryContainer) {Text("오프라인입니다. 저장된 급식만 볼 수 있습니다",Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=8.dp),style=MaterialTheme.typography.bodyMedium)}
+                            if(updateState.snapshot.candidate!=null && page!="updates") TextButton(onClick={navigate("updates")}) {Text("${updateState.snapshot.candidate!!.manifest.versionName} 업데이트")}
+                            savedPages.SaveableStateProvider(page) {
+                                when(page) {
+                                    "home"->HomeScreen(p,cache,selected,vm,{navigate("school")},{navigate("data")}) {detail=it}
+                                    "weekly"->WeeklyScreen(weeklyPreferences,cache,vm,initialDate) {detail=it}
+                                    "school"->SchoolScreen(vm) {back()}
+                                    "schedule"->ScheduleScreen(p.schedule,vm) {schedule->vm.update {it.copy(schedule=schedule)};vm.message.value="자동 전환 설정을 저장했습니다";back()}
+                                    "appearance"->AppearanceScreen(p,vm,vm::update)
+                                    "data"->DataScreen(p,cache,vm)
+                                    "updates"->UpdateScreen(vm)
+                                    "widgets"->WidgetManagementScreen(vm)
+                                    else->SettingsScreen(p,::navigate)
+                                }
+                            }
+                        }
                     }
-                }
-                when(page) {
-                    "home" -> HomeScreen(p,cache,selected,vm, {page="school"},{page="data"}) { detail=it }
-                    "weekly" -> WeeklyScreen(weeklyPreferences,cache,vm,initialDate) { detail=it }
-                    "school" -> SchoolScreen(vm) { page="home" }
-                    "schedule" -> ScheduleScreen(p.schedule) { s -> vm.update { it.copy(schedule=s) };page="settings" }
-                    "appearance" -> AppearanceScreen(p,vm::update)
-                    "data" -> DataScreen(p,cache,vm)
-                    "updates" -> UpdateScreen(vm)
-                    "widgets" -> WidgetManagementScreen(vm)
-                    else -> SettingsScreen(p) { page=it }
                 }
             }
         }
@@ -104,14 +122,14 @@ data class DetailTarget(val date: LocalDate,val type: MealType,val school: Strin
     }
 }
 @Composable fun Notice(text: String, action: String?=null, onAction:()->Unit={}) {
-    Surface(color=MaterialTheme.colorScheme.secondaryContainer,shape=RoundedCornerShape(18.dp)) {
+    Surface(color=MaterialTheme.colorScheme.secondaryContainer,shape=RoundedCornerShape(12.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(text,style=MaterialTheme.typography.bodyMedium)
             action?.let { TextButton(onClick=onAction) { Text(it) } }
         }
     }
 }
-@Composable fun DateNavigation(date:LocalDate,onPrevious:()->Unit,onNext:()->Unit,extra:String?=null,onDateClick:(()->Unit)?=null) {
+@Composable fun DateNavigation(date:LocalDate,onPrevious:()->Unit,onNext:()->Unit,extra:String?=null,onDateClick:(()->Unit)?=null,onToday:(()->Unit)?=null) {
     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
         IconButton(onClick=onPrevious) {Icon(Icons.AutoMirrored.Filled.ArrowBack,"이전 날짜")}
         Column(Modifier.weight(1f),horizontalAlignment=Alignment.CenterHorizontally) {
@@ -120,6 +138,7 @@ data class DetailTarget(val date: LocalDate,val type: MealType,val school: Strin
             extra?.let {Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
         }
         IconButton(onClick=onNext) {Icon(Icons.AutoMirrored.Filled.ArrowForward,"다음 날짜")}
+        onToday?.let {TextButton(onClick=it,modifier=Modifier.heightIn(min=48.dp).semantics {contentDescription="오늘로"},contentPadding=PaddingValues(horizontal=8.dp)) {Text("오늘")}}
     }
 }
 fun stateText(a: Availability)=when(a) {
@@ -128,29 +147,8 @@ fun stateText(a: Availability)=when(a) {
     Availability.Unknown -> "아직 내려받지 않은 날짜입니다"
     is Availability.Failed -> a.message
 }
-@Composable fun MealCard(date: LocalDate,type: MealType,status: Availability,highlight:Boolean=false,compact:Boolean=false,excluded:Boolean=false,allergens:Boolean=false,onClick:()->Unit) {
-    Card(onClick=onClick,colors=CardDefaults.cardColors(containerColor=if(highlight) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow),shape=RoundedCornerShape(20.dp)) {
-        Column(Modifier.fillMaxWidth().padding(if(compact) 14.dp else 18.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-                Text(type.label,style=MaterialTheme.typography.titleMedium,color=MaterialTheme.colorScheme.primary)
-                if(highlight) Text("선택한 날짜",style=MaterialTheme.typography.labelSmall)
-                if(excluded) Text("자동 선택 제외",style=MaterialTheme.typography.labelSmall)
-                Spacer(Modifier.weight(1f));Icon(Icons.AutoMirrored.Filled.ArrowForward,"상세 보기",Modifier.size(18.dp))
-            }
-            if(status is Availability.Present) {
-                if(compact) Text(status.meal.dishes.joinToString(" · ") { it.name },style=MaterialTheme.typography.bodyMedium)
-                else status.meal.dishes.forEach { dish -> Text(dish.name+if(allergens && dish.allergens.isNotEmpty()) "  [${dish.allergens.joinToString(",")}]" else "",style=MaterialTheme.typography.bodyLarge) }
-                if(status.meal.dishes.isEmpty()) Text("메뉴 상세를 확인해 주세요")
-                if(status.meal.calories.isNotBlank()) Text(status.meal.calories,style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            } else Text(stateText(status),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
 @Composable private fun HomeScreen(p:AppSettings,cache:CacheSnapshot,selection:Selection,vm:MealViewModel,onSchool:()->Unit,onKey:()->Unit,onDetail:(DetailTarget)->Unit) {
     val today=LocalDate.now(vm.graph.clock)
-    // Explicit browsing is local UI state, so weekends/excluded meal types remain inspectable.
-    // The saved scheduling engine still determines the initial and automatic focus.
     var browsingDate by rememberSaveable {mutableStateOf<String?>(null)}
     var browsingType by rememberSaveable {mutableStateOf<String?>(null)}
     val automatic=mealFocus(selection,today,p.schedule.fixedType)
@@ -158,49 +156,67 @@ fun stateText(a: Availability)=when(a) {
     var showDate by remember {mutableStateOf(false)}
     fun browse(date:LocalDate,type:MealType) {browsingDate=date.toString();browsingType=type.name;vm.manual(date,type)}
     LaunchedEffect(focus.date,p.school) {vm.ensureRange(focus.date,focus.date.plusDays(1))}
-    // Existing automatic return clears a temporary local browse at the saved rule boundary.
     LaunchedEffect(p.schedule.mode,p.schedule.manualUntil,selection) {
         if(browsingDate!=null && p.schedule.returnAutomatically && p.schedule.manualUntil?.let {vm.graph.clock.millis()>=it}==true) {browsingDate=null;browsingType=null}
     }
-    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(horizontal=20.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        if(p.school==null) item {Notice("학교를 선택하면 급식과 위젯을 사용할 수 있습니다.","학교 찾기",onSchool)}
-        else {
-            item {DateNavigation(focus.date,{browse(focus.date.minusDays(1),focus.type)},{browse(focus.date.plusDays(1),focus.type)},extra=null,onDateClick={showDate=true})}
-            item {MealChoices(focus.type,{browse(focus.date,it)},onAutomatic=if(browsingDate!=null || p.schedule.mode==SelectionMode.MANUAL) {{browsingDate=null;browsingType=null;vm.automatic()}} else null)}
-            if(focus.date.dayOfWeek.value in p.schedule.excludedDays || focus.type !in p.schedule.enabledTypes) item {Text("자동 선택에서 제외한 날짜 또는 식사입니다",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
-            val school=p.school
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wide=maxWidth.value/(LocalDensity.current.fontScale*p.fontScale)>=840
+        val school=p.school
+        if(school==null) Column(Modifier.padding(24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+            SectionTitle("학교를 선택해 주세요")
+            Button(onClick=onSchool) {Text("학교 찾기")}
+        } else {
             val status=cache.availability(school.id,focus.date,focus.type)
-            item {
-                Surface(color=MaterialTheme.colorScheme.surfaceContainerLowest,shape=RoundedCornerShape(24.dp),tonalElevation=1.dp) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                            Text("${if(focus.date==today) "오늘 " else ""}${focus.type.label}",Modifier.weight(1f).semantics {heading()},style=MaterialTheme.typography.headlineSmall)
-                            Column(horizontalAlignment=Alignment.End) {
-                                Text(eatingTime(p.schedule,focus.type).toString(),style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
-                                if(status is Availability.Present && status.meal.calories.isNotBlank()) Text(status.meal.calories,style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if(status is Availability.Present) IconButton(onClick={onDetail(DetailTarget(focus.date,focus.type,school.id))}) {Icon(Icons.AutoMirrored.Filled.ArrowForward,"급식 상세 열기")}
+            val menu:@Composable ()->Unit={
+                Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                    DateNavigation(focus.date,{browse(focus.date.minusDays(1),focus.type)},{browse(focus.date.plusDays(1),focus.type)},
+                        extra=if(focus.date==today) "오늘 급식" else if(focus.date==today.plusDays(1)) "내일 급식" else null,
+                        onDateClick={showDate=true},onToday=if(focus.date!=today) {{browse(today,focus.type)}} else null)
+                    MealChoices(focus.type,{browse(focus.date,it)},onAutomatic=if(browsingDate!=null || p.schedule.mode==SelectionMode.MANUAL) {{browsingDate=null;browsingType=null;vm.automatic()}} else null)
+                    if(focus.date.dayOfWeek.value in p.schedule.excludedDays || focus.type !in p.schedule.enabledTypes) Text("자동 선택에서 제외한 날짜 또는 식사입니다",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    HorizontalDivider(color=MaterialTheme.colorScheme.primary,thickness=2.dp)
+                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                            Text("${focus.type.label} 메뉴",style=MaterialTheme.typography.headlineSmall,modifier=Modifier.semantics {heading()})
+                            Text(listOfNotNull("식사 ${eatingTime(p.schedule,focus.type)}",(status as? Availability.Present)?.meal?.calories?.takeIf {it.isNotBlank()}).joinToString("  ·  "),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        when(status) {
-                            is Availability.Present->{
-                                if(p.compact) Text(status.meal.dishes.joinToString(" · ") {it.name},style=MaterialTheme.typography.bodyLarge)
-                                else MenuLines(status.meal,p.display.allergens,large=true)
-                                val remaining=Duration.between(vm.graph.clock.instant(),MealTiming.eatingInstant(focus.date,focus.type,p.schedule))
-                                if(!remaining.isNegative) Text("식사까지 ${remaining.toHours()}시간 ${remaining.toMinutes()%60}분",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                                else if(!p.schedule.hidePassedCountdown) Text("식사 시간이 지났습니다",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-
+                        if(status is Availability.Present) IconButton(onClick={onDetail(DetailTarget(focus.date,focus.type,school.id))}) {Icon(Icons.AutoMirrored.Filled.ArrowForward,"급식 상세 열기")}
+                    }
+                    when(status) {
+                        is Availability.Present->{
+                            if(p.compact) Text(status.meal.dishes.joinToString(" · ") {it.name},style=MaterialTheme.typography.bodyLarge)
+                            else MenuLines(status.meal,p.display.allergens,large=true)
+                            val remaining=Duration.between(vm.graph.clock.instant(),MealTiming.eatingInstant(focus.date,focus.type,p.schedule))
+                            if(!remaining.isNegative) Text("식사까지 ${remaining.toHours()}시간 ${remaining.toMinutes()%60}분",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            else if(!p.schedule.hidePassedCountdown) Text("식사 시간이 지났습니다",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            TextButton(onClick={onDetail(DetailTarget(focus.date,focus.type,school.id))},contentPadding=PaddingValues(0.dp)) {Text("급식 상세 보기")}
+                        }
+                        is Availability.Absent->Notice("등록된 ${focus.type.label}이 없습니다. 다른 날짜나 식사를 선택해 주세요.")
+                        Availability.Unknown->Notice("아직 내려받지 않은 급식입니다. 연결 상태를 확인하고 다시 시도해 주세요.","새로고침") {vm.refreshDate(focus.date)}
+                        is Availability.Failed->Notice(status.message,"다시 시도") {vm.refreshDate(focus.date)}
+                    }
+                    if(browsingDate==null && (selection is Selection.Warning || selection is Selection.Empty)) Notice(if(selection is Selection.Warning) selection.message else (selection as Selection.Empty).message)
+                    HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+                    Text(cache.latestError(school.id) ?: (if(cache.stale(school.id,vm.graph.clock.instant(),focus.date)) "갱신 전 급식입니다. 마지막 동기화 " else "최근 동기화 ")+syncLabel(cache.lastSync(school.id)),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Row(Modifier.align(Alignment.TopCenter).widthIn(max=if(wide) MealLayout.expandedWidth else MealLayout.readingWidth).fillMaxSize().padding(horizontal=20.dp),horizontalArrangement=Arrangement.spacedBy(40.dp)) {
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical=12.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {menu()}
+                if(wide) Column(Modifier.width(260.dp).verticalScroll(rememberScrollState()).padding(top=28.dp,bottom=24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                    GroupLabel("같은 날의 다른 식사",shortDate(focus.date))
+                    MealType.entries.filter {it!=focus.type}.forEach {type->
+                        val other=cache.availability(school.id,focus.date,type)
+                        Surface(onClick={browse(focus.date,type)},color=MaterialTheme.colorScheme.surfaceContainerLow,shape=RoundedCornerShape(12.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                                Text("${type.label}  ${eatingTime(p.schedule,type)}",style=MaterialTheme.typography.titleMedium)
+                                Text(if(other is Availability.Present) other.meal.dishes.take(3).joinToString(" · ") {it.name}+(if(other.meal.dishes.size>3) " 외" else "") else stateText(other),style=MaterialTheme.typography.bodyMedium)
+                                Text("${type.label} 보기",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
                             }
-                            is Availability.Absent->{Text("등록된 ${focus.type.label}이 없습니다",style=MaterialTheme.typography.titleMedium);Text("휴일이나 급식이 없는 날일 수 있습니다. 다른 날짜 또는 식사를 선택해 주세요.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
-                            Availability.Unknown->{Text("아직 내려받지 않은 급식입니다",style=MaterialTheme.typography.titleMedium);Text("연결되면 자동으로 갱신합니다. 새로고침으로 다시 확인할 수 있습니다.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
-                            is Availability.Failed->Notice(status.message,"다시 시도") {vm.refreshDate(focus.date)}
                         }
                     }
                 }
             }
-            if(browsingDate==null && (selection is Selection.Warning || selection is Selection.Empty)) item {Notice(if(selection is Selection.Warning) selection.message else (selection as Selection.Empty).message)}
-            item {Text(cache.latestError(school.id) ?: (if(cache.stale(school.id,vm.graph.clock.instant(),focus.date)) "저장된 급식 · " else "최근 동기화 · ")+syncLabel(cache.lastSync(school.id)),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
         }
-        if(!vm.graph.configured(p)) item {Notice("급식 서버를 연결하면 최신 메뉴를 받을 수 있습니다.","데이터 연결 설정",onKey)}
     }
     if(showDate) DatePickerOverlay(focus.date,{showDate=false}) {browse(it,focus.type)}
 }
@@ -209,54 +225,87 @@ fun stateText(a: Availability)=when(a) {
     val today=LocalDate.now(vm.graph.clock)
     var anchorText by rememberSaveable {mutableStateOf(initialDate ?: today.toString())}
     var rolling by rememberSaveable {mutableStateOf(false)}
+    var showExcluded by rememberSaveable {mutableStateOf(false)}
     var rangeMenu by remember {mutableStateOf(false)}
     var filterNames by rememberSaveable {mutableStateOf(MealType.entries.map {it.name})}
     var selectedDay by rememberSaveable {mutableStateOf(initialDate ?: today.toString())}
     val filter=filterNames.map(MealType::valueOf).toSet()
     val anchor=LocalDate.parse(anchorText)
-    val monday=anchor.minusDays((anchor.dayOfWeek.value-1).toLong())
-    val dates=if(rolling) eligibleDates(anchor,p.schedule,5) else (0L..6L).map {monday.plusDays(it)}.filter {it.dayOfWeek.value !in p.schedule.excludedDays}
-    val list=rememberLazyListState();val scope=rememberCoroutineScope()
-    LaunchedEffect(anchorText,rolling) {if(dates.none {it.toString()==selectedDay}) selectedDay=dates.firstOrNull()?.toString() ?: anchorText}
-    LaunchedEffect(anchorText,rolling,p.school,p.schedule.excludedDays) {if(dates.isNotEmpty()) vm.ensureRange(dates.first(),dates.last(),p.school)}
-    LazyColumn(Modifier.fillMaxSize(),state=list,contentPadding=PaddingValues(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        item {
+    val dates=if(rolling) eligibleDates(anchor,p.schedule,5) else weekDates(anchor,p.schedule.excludedDays,showExcluded)
+    val selected=LocalDate.parse(selectedDay).takeIf {it in dates} ?: dates.firstOrNull() ?: anchor
+    LaunchedEffect(dates,p.school) {if(dates.isNotEmpty()) vm.ensureRange(dates.first(),dates.last(),p.school)}
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val effectiveWidth=maxWidth.value/(LocalDensity.current.fontScale*p.fontScale)
+        val columns=if(effectiveWidth>=1000) 3 else if(effectiveWidth>=680) 2 else 1
+        val scrollHeader=weeklyHeaderScrolls(maxHeight.value,LocalDensity.current.fontScale*p.fontScale)
+        Column(Modifier.fillMaxSize().then(if(scrollHeader) Modifier.verticalScroll(rememberScrollState()) else Modifier).padding(horizontal=20.dp)) {
+            // Controls remain in place while the meal list scrolls.
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                IconButton(onClick={anchorText=anchor.minusDays(7).toString()}) {Icon(Icons.AutoMirrored.Filled.ArrowBack,"이전 주")}
+                IconButton(onClick={anchorText=anchor.minusDays(7).toString();selectedDay=selected.minusDays(7).toString()}) {Icon(Icons.AutoMirrored.Filled.ArrowBack,"이전 주")}
                 Box(Modifier.weight(1f),contentAlignment=Alignment.Center) {
-                    TextButton(onClick={rangeMenu=true},modifier=Modifier.heightIn(min=48.dp)) {
-                        Column(horizontalAlignment=Alignment.CenterHorizontally) {
-                            Text(dates.takeIf {it.isNotEmpty()}?.let {"${it.first().monthValue}/${it.first().dayOfMonth} – ${it.last().monthValue}/${it.last().dayOfMonth}"} ?: dateLabel(anchor),style=MaterialTheme.typography.titleMedium)
-                            Text(if(rolling) "등교일 5일 ▾" else "한 주 보기 ▾",style=MaterialTheme.typography.labelMedium)
-                        }
+                    TextButton(onClick={rangeMenu=true}) {
+                        Text((dates.takeIf {it.isNotEmpty()}?.let {"${it.first().monthValue}/${it.first().dayOfMonth} – ${it.last().monthValue}/${it.last().dayOfMonth}"} ?: dateLabel(anchor))+" ▾",style=MaterialTheme.typography.titleMedium)
+
                     }
                     DropdownMenu(expanded=rangeMenu,onDismissRequest={rangeMenu=false}) {
-                        DropdownMenuItem(text={Text("한 주 보기")},onClick={rolling=false;rangeMenu=false},leadingIcon={if(!rolling) Icon(Icons.Outlined.Check,null)})
-                        DropdownMenuItem(text={Text("등교일 5일")},onClick={rolling=true;rangeMenu=false},leadingIcon={if(rolling) Icon(Icons.Outlined.Check,null)})
+                        DropdownMenuItem(text={Text("한 주 보기")},onClick={rolling=false;rangeMenu=false})
+                        DropdownMenuItem(text={Text("등교일 5일")},onClick={rolling=true;rangeMenu=false})
+                        DropdownMenuItem(text={Text(if(showExcluded) "제외 요일 숨기기" else "제외 요일도 보기")},onClick={showExcluded=!showExcluded;rolling=false;rangeMenu=false})
                         DropdownMenuItem(text={Text("이번 주로")},onClick={anchorText=today.toString();selectedDay=today.toString();rangeMenu=false})
                     }
                 }
-                IconButton(onClick={anchorText=anchor.plusDays(7).toString()}) {Icon(Icons.AutoMirrored.Filled.ArrowForward,"다음 주")}
+                IconButton(onClick={anchorText=anchor.plusDays(7).toString();selectedDay=selected.plusDays(7).toString()}) {Icon(Icons.AutoMirrored.Filled.ArrowForward,"다음 주")}
             }
-        }
-        item {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                dates.forEachIndexed {index,date->FilterChip(date.toString()==selectedDay,onClick={selectedDay=date.toString();scope.launch {list.animateScrollToItem(3+(if(filter.isEmpty()) 1 else 0)+index)}},label={Text(shortDate(date)+(if(date==today) " 오늘" else ""))},modifier=Modifier.heightIn(min=48.dp))}
-            }
-        }
-        item {
-            Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {MealType.entries.forEach {type->FilterChip(type in filter,onClick={filterNames=if(type in filter) filterNames-type.name else filterNames+type.name},label={Text(type.label)},modifier=Modifier.heightIn(min=48.dp))}}
-        }
-        if(dates.isEmpty()) item {Notice("제외한 요일을 확인해 주세요. 표시할 등교일이 없습니다.")}
-        if(filter.isEmpty()) item {Notice("조식·중식·석식 중 표시할 식사를 선택해 주세요.")}
-        if(p.school==null) item {Notice("설정에서 학교를 선택하면 한 주의 급식을 확인할 수 있습니다.")}
-        p.school?.let {school->dates.forEach {date->
-            item(key=date.toString()) {
-                Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Text(dateLabel(date)+(if(date==today) " · 오늘" else ""),style=MaterialTheme.typography.titleMedium,color=MaterialTheme.colorScheme.primary,modifier=Modifier.semantics {heading()})
-                    MealType.entries.filter {it in filter}.forEach {type->MealCard(date,type,cache.availability(school.id,date,type),highlight=date.toString()==selectedDay,compact=p.compact,allergens=p.display.allergens) {onDetail(DetailTarget(date,type,school.id))}}
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+                dates.forEach {date->
+                    val chosen=date==selected
+                    Surface(onClick={selectedDay=date.toString()},color=if(chosen) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                        shape=RoundedCornerShape(12.dp),modifier=Modifier.widthIn(min=56.dp).semantics {this.selected=chosen;contentDescription="${dateLabel(date)}${if(date==today) ", 오늘" else ""} 급식 보기"}) {
+                        Column(Modifier.padding(horizontal=12.dp,vertical=8.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(2.dp)) {
+                            Text(date.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT,Locale.KOREAN),style=MaterialTheme.typography.labelLarge)
+                            Text(date.dayOfMonth.toString(),style=MaterialTheme.typography.titleLarge)
+                            Row(Modifier.heightIn(min=20.dp),horizontalArrangement=Arrangement.spacedBy(2.dp),verticalAlignment=Alignment.CenterVertically) {
+                                if(chosen) Icon(Icons.Outlined.Check,null,Modifier.size(14.dp))
+                                if(date==today) Text("오늘",style=MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
                 }
             }
-        }}
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                MealType.entries.forEach {type->FilterChip(type in filter,onClick={filterNames=if(type in filter) filterNames-type.name else filterNames+type.name},label={Text(type.label)},modifier=Modifier.heightIn(min=48.dp))}
+            }
+            if(columns==1) Text("날짜를 선택하면 해당 급식을 표시합니다",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.padding(bottom=12.dp))
+            HorizontalDivider()
+            if(dates.isEmpty()) Notice("제외한 요일을 확인해 주세요. 표시할 등교일이 없습니다.")
+            if(filter.isEmpty()) Notice("표시할 식사를 하나 이상 선택해 주세요.")
+            if(p.school==null) Notice("설정에서 학교를 선택해 주세요.")
+            p.school?.let {school->
+                val visible=comparisonDates(dates,selected,columns)
+                Row(Modifier.then(if(scrollHeader) Modifier else Modifier.weight(1f)).fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(24.dp)) {
+                    visible.forEach {date->key(date) {
+                        Column(Modifier.weight(1f).then(if(scrollHeader) Modifier else Modifier.verticalScroll(rememberScrollState())).padding(vertical=16.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                            Text(dateLabel(date)+(if(date==today) " (오늘)" else ""),style=MaterialTheme.typography.titleMedium,color=if(date==selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,modifier=Modifier.semantics {heading()})
+                            if(date.dayOfWeek.value in p.schedule.excludedDays) Text("자동 선택에서 제외한 요일",style=MaterialTheme.typography.bodyMedium)
+                            MealType.entries.filter {it in filter}.forEach {type->
+                                val status=cache.availability(school.id,date,type)
+                                Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                                    Row(Modifier.fillMaxWidth().heightIn(min=48.dp).clickable {onDetail(DetailTarget(date,type,school.id))},verticalAlignment=Alignment.CenterVertically) {
+                                        Text(type.label,Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
+                                        Icon(Icons.AutoMirrored.Filled.ArrowForward,"${shortDate(date)} ${type.label} 상세",Modifier.size(20.dp))
+                                    }
+                                    if(status is Availability.Present) {
+                                        if(p.compact) Text(status.meal.dishes.joinToString(" · ") {it.name},style=MaterialTheme.typography.bodyMedium)
+                                        else MenuLines(status.meal,p.display.allergens)
+                                        if(status.meal.calories.isNotBlank()) Text(status.meal.calories,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                    } else Text(stateText(status),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                    HorizontalDivider(Modifier.padding(top=8.dp),color=MaterialTheme.colorScheme.outlineVariant)
+                                }
+                            }
+                        }
+                    }}
+                }
+            }
+        }
     }
 }

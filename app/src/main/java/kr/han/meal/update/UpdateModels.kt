@@ -29,15 +29,15 @@ data class UpdateSettings(val config: UpdateConfig = UpdateConfig())
 enum class UpdateOperation { IDLE, CHECKING, DOWNLOADING }
 data class UpdateState(val settings: UpdateSettings = UpdateSettings(), val snapshot: UpdateSnapshot = UpdateSnapshot(), val operation: UpdateOperation = UpdateOperation.IDLE, val progress: Int = 0)
 enum class UpdateError(val label: String, val transient: Boolean = false) {
-    CONFIG("공식 업데이트 연결을 확인할 수 없습니다"),
+    CONFIG("업데이트 서버 주소를 확인할 수 없습니다"),
     AUTH("업데이트 서버에 접근할 수 없습니다. 잠시 후 다시 시도해 주세요"),
     NOT_FOUND("아직 공개된 업데이트가 없습니다"),
     RATE_LIMIT("GitHub 요청 한도에 도달했습니다. 나중에 다시 확인해 주세요"),
-    NETWORK("업데이트 서버에 연결할 수 없습니다. 저장된 급식은 계속 사용할 수 있습니다",true),
+    NETWORK("업데이트 서버에 연결할 수 없습니다. 네트워크 연결을 확인해 주세요",true),
     SERVER("GitHub 서버 오류입니다. 잠시 후 다시 시도해 주세요",true),
-    INVALID("업데이트 파일이나 메타데이터가 올바르지 않습니다"),
+    INVALID("업데이트 파일이나 버전 정보가 올바르지 않습니다"),
     INCOMPATIBLE("이 Android 버전에서 설치할 수 없는 업데이트입니다"),
-    SIGNATURE("설치된 앱과 업데이트의 서명이 다릅니다. 정식 서명 APK로 최초 설치했는지 확인해 주세요"),
+    SIGNATURE("설치된 앱과 업데이트의 서명이 달라 설치할 수 없습니다"),
     STORAGE("업데이트 파일을 저장하지 못했습니다. 저장 공간을 확인해 주세요")
 }
 class UpdateException(val reason: UpdateError): Exception(reason.label)

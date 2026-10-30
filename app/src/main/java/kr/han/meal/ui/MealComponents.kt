@@ -43,19 +43,20 @@ internal fun allergyLabel(numbers:List<Int>)=numbers.distinct().filter {it in 1.
 @Composable fun SchoolToolbarTitle(school:School,fontScale:Float,caption:String="한눈급식",onChange:()->Unit) {
     val large=LocalDensity.current.fontScale*fontScale>1.3f
     Column(Modifier.fillMaxWidth().heightIn(min=48.dp).clickable(role=Role.Button,onClick=onChange),verticalArrangement=Arrangement.Center) {
-        if(!large) Text(listOf(caption,school.region).filter {it.isNotBlank()}.joinToString(" · "),maxLines=1,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        if(!large) Text(school.region.ifBlank {caption},maxLines=1,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Text(school.name,style=MaterialTheme.typography.titleMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
     }
 }
 
 @Composable fun MealChoices(selected:MealType?,onSelect:(MealType)->Unit,enabled:Set<MealType> = MealType.entries.toSet(),onAutomatic:(()->Unit)?=null) {
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-        MealType.entries.forEach {type->FilterChip(selected=type==selected,onClick={onSelect(type)},label={Text(type.label)},modifier=Modifier.heightIn(min=48.dp),leadingIcon=if(type==selected) {{Icon(Icons.Outlined.Check,null,Modifier.size(18.dp))}} else null,
-            enabled=type in enabled)
+    Column {
+        PrimaryTabRow(selectedTabIndex=selected?.ordinal ?: 0) {
+            MealType.entries.forEach {type->Tab(selected=selected==type,onClick={onSelect(type)},enabled=type in enabled,text={Text(type.label)},modifier=Modifier.heightIn(min=48.dp))}
         }
-        onAutomatic?.let {action->TextButton(onClick=action,modifier=Modifier.heightIn(min=48.dp).semantics {contentDescription="자동 선택으로 돌아가기"}) {Text("자동")}}
+        onAutomatic?.let {action->TextButton(onClick=action,modifier=Modifier.heightIn(min=48.dp).semantics {contentDescription="자동 선택으로 돌아가기"}) {Text("자동 선택으로 돌아가기")}}
     }
 }
+
 @Composable fun DatePickerOverlay(date:LocalDate,onDismiss:()->Unit,onDate:(LocalDate)->Unit) {
     val state=rememberDatePickerState(initialSelectedDateMillis=date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
     DatePickerDialog(onDismissRequest=onDismiss,confirmButton={TextButton(onClick={state.selectedDateMillis?.let {onDate(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate())};onDismiss()}) {Text("날짜 선택")}},dismissButton={TextButton(onClick=onDismiss) {Text("취소")}}) {DatePicker(state)}
@@ -72,10 +73,10 @@ internal fun allergyLabel(numbers:List<Int>)=numbers.distinct().filter {it in 1.
     }
 }
 @Composable fun MenuLines(meal:Meal,showAllergens:Boolean,large:Boolean=false) {
-    Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
+    Column(verticalArrangement=Arrangement.spacedBy(if(large) 6.dp else 4.dp)) {
         meal.dishes.forEach {dish->
             Column(verticalArrangement=Arrangement.spacedBy(2.dp)) {
-                Text(dish.name,style=if(large) MaterialTheme.typography.bodyLarge.copy(fontSize=MaterialTheme.typography.bodyLarge.fontSize*1.125f) else MaterialTheme.typography.bodyLarge)
+                Text(dish.name,style=if(large) MaterialTheme.typography.bodyLarge.copy(fontSize=MaterialTheme.typography.bodyLarge.fontSize*1.25f,lineHeight=MaterialTheme.typography.bodyLarge.lineHeight*1.2f) else MaterialTheme.typography.bodyLarge)
                 if(showAllergens && dish.allergens.isNotEmpty()) Text("알레르기 ${allergyLabel(dish.allergens)}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -99,13 +100,12 @@ internal fun allergyLabel(numbers:List<Int>)=numbers.distinct().filter {it in 1.
             LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(start=24.dp,end=24.dp,bottom=24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                 item {
                     FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                        Surface(color=MaterialTheme.colorScheme.secondaryContainer,shape=RoundedCornerShape(10.dp)) {Text("식사 ${eatingTime(schedule,target.type)}",Modifier.padding(horizontal=12.dp,vertical=8.dp),style=MaterialTheme.typography.labelLarge)}
-                        if(status is Availability.Present && status.meal.calories.isNotBlank()) Surface(color=MaterialTheme.colorScheme.tertiaryContainer,shape=RoundedCornerShape(10.dp)) {Text(status.meal.calories,Modifier.padding(horizontal=12.dp,vertical=8.dp),style=MaterialTheme.typography.labelLarge)}
+                        Text("식사 ${eatingTime(schedule,target.type)}",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        if(status is Availability.Present && status.meal.calories.isNotBlank()) Text(status.meal.calories,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 if(status is Availability.Present) {
                     item {SelectionContainer {MenuLines(status.meal,showAllergens=true,large=true)}}
-                    item {Text("알레르기는 메뉴 아래의 번호와 식품명을 확인하세요.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
                     item {DisclosureSection("영양 정보") {SelectionContainer {Text(status.meal.nutrition.ifBlank {"등록된 영양 정보가 없습니다"},style=MaterialTheme.typography.bodyMedium)}}}
                     item {DisclosureSection("원산지") {SelectionContainer {Text(status.meal.origin.ifBlank {"등록된 원산지 정보가 없습니다"},style=MaterialTheme.typography.bodyMedium)}}}
                     item {DisclosureSection("알레르기 번호 안내") {Text(allergyLabel((1..19).toList()),style=MaterialTheme.typography.bodyMedium)}}

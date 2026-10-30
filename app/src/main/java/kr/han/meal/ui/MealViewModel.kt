@@ -43,7 +43,7 @@ class MealViewModel(app: Application): AndroidViewModel(app) {
                 graph.schools.refresh(endpoint)
                 search(lastQuery,lastSchoolType)
             } catch(e:CancellationException) {throw e} catch(e:Exception) {
-                search.value=SearchState(results=withContext(Dispatchers.Default) {graph.schools.search(lastQuery,lastSchoolType)},error=if(e is NeisException) e.message else "학교 목록을 준비하지 못했습니다. 데이터 연결 설정을 확인해 주세요",searched=lastQuery.isNotBlank())
+                search.value=SearchState(results=withContext(Dispatchers.Default) {graph.schools.search(lastQuery,lastSchoolType)},error=if(e is NeisException) e.message else "학교 목록을 불러오지 못했습니다. 네트워크 연결을 확인해 주세요",searched=lastQuery.isNotBlank())
             }
         }
     }
@@ -53,7 +53,7 @@ class MealViewModel(app: Application): AndroidViewModel(app) {
         searchJob=viewModelScope.launch {
             delay(120)
             val results=withContext(Dispatchers.Default) {graph.schools.search(query,schoolType)}
-            search.value=SearchState(loading=!graph.schools.ready && directoryJob?.isActive==true,results=results,error=if(!graph.schools.ready && directoryJob?.isActive!=true) "전국 학교 목록을 준비해 주세요. 데이터 연결 설정과 네트워크를 확인하세요" else null,searched=query.isNotBlank())
+            search.value=SearchState(loading=!graph.schools.ready && directoryJob?.isActive==true,results=results,error=if(!graph.schools.ready && directoryJob?.isActive!=true) "학교 목록이 없습니다. 네트워크 연결을 확인하고 다시 시도해 주세요" else null,searched=query.isNotBlank())
         }
     }
     fun choose(school: School) { viewModelScope.launch { graph.settings.update { it.copy(school=school) };syncSchool(school) } }

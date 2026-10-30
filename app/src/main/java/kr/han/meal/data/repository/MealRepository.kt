@@ -69,17 +69,17 @@ class MealRepository(private val dao: MealDao, private val service: MonthlyMealS
                     require(fetched<=now.plusSeconds(300))
                     if(oldMonth!=null && fetched.toEpochMilli()<oldMonth.successAt) SyncResult.Cached
                     else {
-                        val message=if(fresh<=clock.instant()) "서버 갱신 지연 · 마지막 성공 데이터 ${data.fetchedAt}" else null
+                        val message=if(fresh<=clock.instant()) "급식 갱신이 늦어지고 있습니다. 마지막 갱신 ${fetched.atZone(SEOUL).format(java.time.format.DateTimeFormatter.ofPattern("M/d HH:mm"))}" else null
                         dao.saveMonth(school.id,first.toString(),last.toString(),data.domain(school).map {MealEntity.from(it,fetched)},dates.map {CoverageEntity(school.id,it.toString(),fetched.toEpochMilli(),now.toEpochMilli(),message)},MonthlyCacheEntity(school.id,month.toString(),source,fetched.toEpochMilli(),fresh.toEpochMilli(),stale.toEpochMilli()))
                         if(message!=null) SyncResult.Stale(message) else SyncResult.Success
                     }
                 } catch(e:CancellationException) {throw e} catch(e:Exception) {
                     val kind=when(e) {is NeisException->e.kind;is IOException->ErrorKind.NETWORK;else->ErrorKind.INVALID}
                     val message=when(kind) {
-                        ErrorKind.AUTH,ErrorKind.CONFIG->"급식 서버 연결 설정을 확인해 주세요"
-                        ErrorKind.NETWORK->"네트워크 연결 실패 · 저장된 급식을 표시합니다"
-                        ErrorKind.SERVER->"급식 서버 오류 · 잠시 후 다시 시도해 주세요"
-                        ErrorKind.RATE_LIMITED->"요청이 많습니다 · 저장된 급식을 표시하며 잠시 후 다시 시도합니다"
+                        ErrorKind.AUTH,ErrorKind.CONFIG->"급식 서버 설정에 문제가 있습니다. 앱 업데이트를 확인해 주세요"
+                        ErrorKind.NETWORK->"네트워크에 연결할 수 없습니다. 연결 상태를 확인해 주세요"
+                        ErrorKind.SERVER->"급식 서버 오류입니다. 잠시 후 다시 시도해 주세요"
+                        ErrorKind.RATE_LIMITED->"요청이 많아 급식을 받지 못했습니다. 잠시 후 다시 시도합니다"
                         ErrorKind.INVALID->"급식 서버 응답을 해석할 수 없습니다"
                     }
                     dao.putCoverage(dates.map {d->CoverageEntity(school.id,d.toString(),old[d.toString()]?.successAt,now.toEpochMilli(),message,kind.name)})

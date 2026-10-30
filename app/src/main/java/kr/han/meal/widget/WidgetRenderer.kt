@@ -57,7 +57,7 @@ class WidgetRenderer(private val g: AppGraph) {
         WorkScheduler.localRefresh(g.app,refreshes.isNotEmpty())
         scheduleRefresh(refreshes.minOrNull())
     } }
-    internal fun render(c:WidgetConfig,school:School?,p:AppSettings,cache:CacheSnapshot,width:Int,height:Int): RemoteViews {
+    internal fun render(c:WidgetConfig,school:School?,p:AppSettings,cache:CacheSnapshot,width:Int,height:Int,requestData:Boolean=true): RemoteViews {
         val rv=RemoteViews(g.app.packageName,R.layout.widget_meal)
         rv.setImageViewResource(R.id.widget_background,listOf(R.drawable.widget_background,R.drawable.widget_lavender,R.drawable.widget_apricot)[c.color.coerceIn(0,2)])
         rv.setInt(R.id.widget_background,"setImageAlpha",(c.opacity.coerceIn(25,100)*2.55).toInt())
@@ -81,7 +81,7 @@ class WidgetRenderer(private val g: AppGraph) {
         val infoLines=if(height<130) 1 else 4
         val state=when {
             school==null -> "학교를 선택해 주세요"
-            !g.configured(p) && cache.lastSync(school.id)==null -> "급식 서버 연결을 설정해 주세요"
+            !g.configured(p) && cache.lastSync(school.id)==null -> "급식 서버에 연결할 수 없습니다"
             else -> null
         }
         if(state!=null) addRow(rv,c,"",if(height<130) if(school==null) "학교 선택" else "서버 연결" else state,if(height<130) 1 else 8,null)
@@ -105,22 +105,22 @@ class WidgetRenderer(private val g: AppGraph) {
                                 val remaining=Duration.between(g.clock.instant(),target)
                                 if(c.liveCountdown && remaining.toHours()<24) {
                                     visible(rv,R.id.widget_countdown,true)
-                                    rv.setChronometer(R.id.widget_countdown,MealTiming.chronometerBase(target,g.clock.instant(),SystemClock.elapsedRealtime()),"식사 기준 %s · −는 경과",true)
+                                    rv.setChronometer(R.id.widget_countdown,MealTiming.chronometerBase(target,g.clock.instant(),SystemClock.elapsedRealtime()),"식사까지 %s (−는 경과)",true)
                                     rv.setChronometerCountDown(R.id.widget_countdown,true)
                                 } else {
                                     visible(rv,R.id.widget_countdown,false);visible(rv,R.id.widget_eating,true)
                                     val relative=if(remaining.toDays()>0) "${remaining.toDays()}일 ${remaining.toHours()%24}시간" else "${remaining.toHours()}시간 ${remaining.toMinutes()%60}분"
-                                    rv.setTextViewText(R.id.widget_eating,(if(d.eatingTime) "${eatingTime(schedule,type)} · " else "")+"약 $relative 남음 · 갱신 기준")
+                                    rv.setTextViewText(R.id.widget_eating,(if(d.eatingTime) "${eatingTime(schedule,type)} · " else "")+"약 $relative 남음 (갱신 시점)")
                                 }
                             } else if(!schedule.hidePassedCountdown) {visible(rv,R.id.widget_eating,true);rv.setTextViewText(R.id.widget_eating,"식사 예정 시간 지남")}
                         }
                         if(d.nextPreview && height>250) {
                             val next=nextMeal(cache,school.id,date,type,schedule)
-                            next?.let {addRow(rv,c,"다음 저장된 ${shortDate(it.date)} ${it.type.label}",it.dishes.take(2).joinToString(" · ") {dish->dish.name},1,detailIntent(c,it.date,it.type,school.id))}
+                            next?.let {addRow(rv,c,"다음 ${shortDate(it.date)} ${it.type.label}",it.dishes.take(2).joinToString(" · ") {dish->dish.name},1,detailIntent(c,it.date,it.type,school.id))}
                         }
                         rv.setOnClickPendingIntent(R.id.widget_title,details)
                     }
-                    is Selection.NeedsData -> {addRow(rv,c,"${shortDate(selection.date)} ${selection.type.label}","아직 내려받지 않은 날짜 · 동기화 대기",infoLines,null,inline=height<130);if(g.configured(p)) WorkScheduler.request(g.app,from=selection.date,to=selection.date.plusDays(20))}
+                    is Selection.NeedsData -> {addRow(rv,c,"${shortDate(selection.date)} ${selection.type.label}","급식을 내려받기 전입니다",infoLines,null,inline=height<130);if(requestData && g.configured(p)) WorkScheduler.request(g.app,from=selection.date,to=selection.date.plusDays(20))}
                     is Selection.Failure -> addRow(rv,c,"요청 실패",selection.message,infoLines,null,inline=height<130)
                     is Selection.Warning -> addRow(rv,c,"설정 확인",selection.message,infoLines,null,inline=height<130)
                     is Selection.Empty -> addRow(rv,c,"",selection.message,infoLines,null,inline=height<130)
@@ -131,12 +131,20 @@ class WidgetRenderer(private val g: AppGraph) {
                 val types=MealType.entries.filter {it in schedule.enabledTypes}
                 if(types.isEmpty()) addRow(rv,c,"설정 확인","표시할 식사 종류를 선택해 주세요",3,null)
                 val visibleTypes=if(height<180 && types.size>1) listOf(types.firstOrNull {selected?.date==anchor && it==selected.type} ?: types.first()) else types
+                // Reserve the actual header, status and 48dp controls before allocating each meal.
+                // The former fixed 100dp subtraction clipped dinner in a 330dp-tall widget.
+                val systemScale=g.app.resources.configuration.fontScale
+                val chrome=20+48+4+(26+(if(d.school) 18 else 0)+(if(d.date || d.weekday) 18 else 0)+20)*systemScale
+                val perMeal=(height-chrome)/visibleTypes.size.coerceAtLeast(1)
+                val inline=height<240 || perMeal<21*systemScale+18*fontScale
+                val lines=if(height<240) ((height-100)/types.size.coerceAtLeast(1)/(18*fontScale)-1).toInt().coerceIn(1,6)
+                    else ((perMeal-3-(if(inline) 0f else 18*systemScale))/(18*fontScale)).toInt().coerceIn(1,6)
                 visibleTypes.forEach {type ->
                     val mark=if(selected?.date==anchor && selected.type==type) "● " else ""
-                    addRow(rv,c,mark+if(d.mealType) type.label else "",summary(cache,school.id,anchor,type,c),((height-100)/types.size/(18*fontScale)-1).toInt().coerceIn(1,6),detailIntent(c,anchor,type,school.id),inline=height<240)
+                    addRow(rv,c,mark+if(d.mealType) type.label else "",summary(cache,school.id,anchor,type,c),lines,detailIntent(c,anchor,type,school.id),inline=inline)
                 }
                 if(visibleTypes.size<types.size && height>=130) addRow(rv,c,"","하루 전체 보기",1,openIntent(c,anchor,visibleTypes.first(),school.id,true))
-                requestUnknown(cache,school,p,anchor,anchor)
+                if(requestData) requestUnknown(cache,school,p,anchor,anchor)
             }
             WidgetKind.WEEKLY_SELECTED,WidgetKind.WEEKLY_ALL -> {
                 val dates=if(c.rangeMode==RangeMode.ROLLING) eligibleDates(anchor,schedule,5) else {
@@ -144,7 +152,7 @@ class WidgetRenderer(private val g: AppGraph) {
                     (0L..6L).map {monday.plusDays(it)}.filter {it.dayOfWeek.value !in schedule.excludedDays}
                 }
                 val types=if(c.kind==WidgetKind.WEEKLY_ALL) MealType.entries.filter {it in schedule.enabledTypes} else MealType.entries.filter {it in c.weeklyTypes && it in schedule.enabledTypes}
-                rv.setTextViewText(R.id.widget_date,if(dates.isNotEmpty() && d.date) "${shortDate(dates.first())} – ${shortDate(dates.last())}" else if(d.weekday) "월요일부터 · 제외 요일 건너뜀" else "")
+                rv.setTextViewText(R.id.widget_date,if(dates.isNotEmpty() && d.date) "${shortDate(dates.first())} – ${shortDate(dates.last())}" else if(d.weekday) "제외 요일을 뺀 한 주" else "")
                 if(dates.isEmpty() || types.isEmpty()) addRow(rv,c,"설정 확인","요일과 식사 종류를 하나 이상 허용해 주세요",3,null)
                 // Reserve actual chrome and an overflow link before assigning menu lines.
                 val systemScale=g.app.resources.configuration.fontScale
@@ -164,19 +172,19 @@ class WidgetRenderer(private val g: AppGraph) {
                     val registered=types.filter {cache.availability(school.id,date,it) is Availability.Present}
                     val text=if(c.kind==WidgetKind.WEEKLY_ALL) {
                         if(width<180 || rowLines==1) mealStates else if(registered.isNotEmpty()) registered.joinToString(if(rowLines>1) "\n" else " · ") {t->(if(d.mealType) "${t.label} " else "")+summary(cache,school.id,date,t,c,true)}
-                        else if(types.all {cache.availability(school.id,date,it) is Availability.Absent}) "등록된 급식 없음" else "미조회 또는 조회 실패 · 앱에서 확인"
+                        else if(types.all {cache.availability(school.id,date,it) is Availability.Absent}) "등록된 급식 없음" else "급식을 확인하지 못했습니다. 앱에서 확인해 주세요"
                     } else types.joinToString(if(rowLines>1) "\n" else " · ") {t-> (if(d.mealType) "${t.label} " else "")+summary(cache,school.id,date,t,c,true)}
-                    val moreHint=if(visibleDates.size<dates.size && !separateOverflow) " · ${dates.size-visibleDates.size}일 더" else ""
+                    val moreHint=if(visibleDates.size<dates.size && !separateOverflow) " (${dates.size-visibleDates.size}일 더)" else ""
                     val label=(if(date==today) "● " else "")+dateText(date,d).ifBlank {"급식"}+moreHint+(if(c.kind==WidgetKind.WEEKLY_ALL && rowLines>1 && width>=240 && d.mealType) " · $mealStates" else "")
                     addRow(rv,c,label,text,rowLines,openIntent(c,date,types.firstOrNull() ?: MealType.LUNCH,school.id,true),inline=height<130)
                 }
-                if(separateOverflow) addRow(rv,c,"", "${dates.size-visibleDates.size}일 더 · 전체 보기",1,openIntent(c,anchor,types.firstOrNull() ?: MealType.LUNCH,school.id,true))
-                if(dates.isNotEmpty()) requestUnknown(cache,school,p,dates.first(),dates.last())
+                if(separateOverflow) addRow(rv,c,"", "나머지 ${dates.size-visibleDates.size}일 보기",1,openIntent(c,anchor,types.firstOrNull() ?: MealType.LUNCH,school.id,true))
+                if(requestData && dates.isNotEmpty()) requestUnknown(cache,school,p,dates.first(),dates.last())
             }
         }
         val status=if(school==null) "위젯 설정에서 학교를 선택하세요" else listOfNotNull(
-            if(manualActive || c.dateOffset!=0) "수동 · 자동 버튼으로 복귀" else null,
-            if(d.freshness) (if(!g.app.isOnline()) "오프라인 · 저장된 급식" else cache.latestError(school.id)) ?: if(cache.lastSync(school.id)==null) "내려받기 대기" else if(cache.stale(school.id,g.clock.instant(),selected?.date ?: anchor)) "오래된 캐시 표시" else "저장된 급식" else null,
+            if(manualActive || c.dateOffset!=0) "수동 선택 중" else null,
+            if(d.freshness) (if(!g.app.isOnline()) "오프라인 (저장된 급식)" else cache.latestError(school.id)) ?: if(cache.lastSync(school.id)==null) "내려받기 대기" else if(cache.stale(school.id,g.clock.instant(),selected?.date ?: anchor)) "갱신 전 급식" else "저장된 급식" else null,
             if(d.lastSync) "동기화 ${syncLabel(cache.lastSync(school.id))}" else null
         ).joinToString(" · ")
         rv.setTextViewText(R.id.widget_status,status);visible(rv,R.id.widget_status,status.isNotBlank())
@@ -203,7 +211,7 @@ class WidgetRenderer(private val g: AppGraph) {
         if(c.kind==WidgetKind.DAILY && height<240) {visible(rv,R.id.widget_school,false);visible(rv,R.id.widget_status,false)}
         if(c.kind==WidgetKind.DAILY && height in 180..209) {
             visible(rv,R.id.widget_date,false)
-            rv.setTextViewText(R.id.widget_title,"하루 급식 · ${dateText(anchor,d)}")
+            rv.setTextViewText(R.id.widget_title,"하루 급식 ${dateText(anchor,d)}")
             rv.setTextViewTextSize(R.id.widget_title,android.util.TypedValue.COMPLEX_UNIT_SP,15f)
             rv.setInt(R.id.widget_title,"setMaxLines",1)
         }
@@ -221,8 +229,8 @@ class WidgetRenderer(private val g: AppGraph) {
     private fun summary(cache:CacheSnapshot,school:String,date:LocalDate,type:MealType,c:WidgetConfig,brief:Boolean=false):String = when(val a=cache.availability(school,date,type)) {
         is Availability.Present -> if(brief) a.meal.dishes.take(if(c.compact) 2 else 3).joinToString(" · ") {it.name+if(c.display.allergens && it.allergens.isNotEmpty()) " (${it.allergens.joinToString(".")})" else ""}+(if(a.meal.dishes.size>(if(c.compact) 2 else 3)) " 외" else "")+(if(c.display.calories && a.meal.calories.isNotBlank()) " · ${a.meal.calories}" else "") else menu(a.meal,c.display,c.compact)+(if(c.display.calories && a.meal.calories.isNotBlank()) "\n${a.meal.calories}" else "")
         is Availability.Absent -> "등록 없음"
-        Availability.Unknown -> "미조회 · 동기화 대기"
-        is Availability.Failed -> "조회 실패 · 새로고침"
+        Availability.Unknown -> "내려받기 대기"
+        is Availability.Failed -> "조회 실패. 새로고침해 주세요"
     }
     private fun addRow(rv:RemoteViews,c:WidgetConfig,label:String,text:String,lines:Int,pending:PendingIntent?,inline:Boolean=false) {
         val row=RemoteViews(g.app.packageName,R.layout.widget_row)

@@ -17,7 +17,7 @@ object NeisParser {
         if(code.isBlank()) throw NeisException(ErrorKind.INVALID,"NEIS 결과 코드가 없습니다")
         if(code == "INFO-000" || code == "INFO-200") return
         val auth = code in setOf("INFO-100","ERROR-290") || result.text("MESSAGE").contains("인증")
-        throw NeisException(if(auth) ErrorKind.AUTH else ErrorKind.SERVER, if(auth) "NEIS 인증키를 확인해 주세요" else "NEIS 오류 ($code): ${result.text("MESSAGE")}")
+        throw NeisException(if(auth) ErrorKind.AUTH else ErrorKind.SERVER, if(auth) "NEIS 서버 인증에 실패했습니다" else "NEIS 오류 ($code): ${result.text("MESSAGE")}")
     }
     fun page(root: JsonObject, name: String): NeisPage {
         root["RESULT"]?.jsonObject?.let {

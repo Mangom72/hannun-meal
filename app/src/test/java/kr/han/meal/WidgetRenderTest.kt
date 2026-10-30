@@ -28,6 +28,19 @@ import java.time.*
 @Config(sdk=[28],application=Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class WidgetRenderTest {
+    @Test fun previewsWithMissingDataRenderWithoutStartingWorkManager()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Application>()
+        val g=AppGraph(context,Clock.fixed(Instant.parse("2026-10-28T03:00:00Z"),SEOUL),startBackground=false)
+        try {
+            val school=School("B10","7010057","가락고등학교")
+            val p=AppSettings(school=school)
+            // This Application has no WorkManager initializer. A preview that queues a sync fails.
+            WidgetKind.entries.forEach {kind->
+                val views=g.renderer.render(kr.han.meal.ui.previewConfig(p,kind),school,p,CacheSnapshot(),320,330,requestData=false)
+                assertNotNull(views.apply(context,FrameLayout(context)))
+            }
+        } finally {g.scope.cancel();g.database.close()}
+    }
     @Test fun allKindsRenderAtCompactAndLargeSizes()=runBlocking {
         val context=ApplicationProvider.getApplicationContext<Application>()
         val clock=Clock.fixed(Instant.parse("2025-09-01T01:00:00Z"),SEOUL)
@@ -98,10 +111,10 @@ class WidgetRenderTest {
             val school=School("B10","7010057","학교")
             val first=LocalDate.now(clock).minusDays(2)
             val coverage=(0L..6L).map {CoverageEntity(school.id,first.plusDays(it).toString(),clock.millis(),clock.millis())}
-            val meals=(0L..6L).flatMap {day->MealType.entries.map {type->Meal(school.id,first.plusDays(day),type,listOf(Dish("소고기버섯불고기"),Dish("따뜻한 잡곡밥"),Dish("콩나물맑은국"),Dish("깍두기")),"화면 검사용 예시",syncedAt=clock.instant())}}
+            val meals=(0L..6L).flatMap {day->MealType.entries.map {type->Meal(school.id,first.plusDays(day),type,listOf(Dish("소고기버섯불고기"),Dish("따뜻한 잡곡밥"),Dish("콩나물맑은국"),Dish("깍두기"),Dish("배추겉절이"),Dish("삼겹살고추장볶음"),Dish("생크림과일와플")),"화면 검사용 예시",syncedAt=clock.instant())}}
             val cache=CacheSnapshot(meals,coverage)
-            for(kind in WidgetKind.entries) for((width,height) in listOf(110 to 110,144 to 144,320 to 180,320 to 250,320 to 370)) {
-                val rv=g.renderer.render(WidgetConfig(206,kind,school,fontScale=1.4f),school,AppSettings(school=school),cache,width,height)
+            for(scale in listOf(1f,1.4f)) for(kind in WidgetKind.entries) for((width,height) in listOf(110 to 110,144 to 144,320 to 180,320 to 250,340 to 330,320 to 370)) {
+                val rv=g.renderer.render(WidgetConfig(206,kind,school,fontScale=scale),school,AppSettings(school=school),cache,width,height)
                 val view=rv.apply(context,FrameLayout(context))
                 view.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(height,View.MeasureSpec.EXACTLY));view.layout(0,0,width,height)
                 val body=view.findViewById<android.widget.LinearLayout>(R.id.widget_body)
