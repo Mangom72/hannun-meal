@@ -49,6 +49,9 @@ class WidgetContractTest {
         val view=rv.apply(context,LinearLayout(context))
         assertEquals(1,view.findViewById<LinearLayout>(R.id.widget_body).childCount)
         assertTrue(view.findViewById<Chronometer>(R.id.widget_countdown).isCountDown)
+        listOf("widget_previous","widget_next","widget_auto","widget_settings").forEach {
+            assertEquals("Removed controls must not return",0,context.resources.getIdentifier(it,"id",context.packageName))
+        }
     }
     @Test fun pendingIntentsAreScopedToInstanceAndAction() {
         val context=ApplicationProvider.getApplicationContext<Application>()

@@ -62,8 +62,6 @@ class WidgetRenderer(private val g: AppGraph) {
         rv.setImageViewResource(R.id.widget_background,listOf(R.drawable.widget_background,R.drawable.widget_lavender,R.drawable.widget_apricot)[c.color.coerceIn(0,2)])
         rv.setInt(R.id.widget_background,"setImageAlpha",(c.opacity.coerceIn(25,100)*2.55).toInt())
         rv.removeAllViews(R.id.widget_body)
-        val fontScale=c.fontScale.coerceIn(.8f,1.4f)*g.app.resources.configuration.fontScale
-        val compactNext=c.kind==WidgetKind.NEXT && (width<200 || height<220 || fontScale>1.3f && height<280)
         val d=c.display
         val schedule=effectiveWidgetSchedule(c,g.clock.instant())
         val today=LocalDate.now(g.clock)
@@ -72,78 +70,69 @@ class WidgetRenderer(private val g: AppGraph) {
         val manualActive=c.manualDate!=null && (!c.schedule.returnAutomatically || c.manualUntil?.let {it>g.clock.millis()}==true)
         val scheduleManual=schedule.mode==SelectionMode.MANUAL && schedule.manualDate!=null && (!schedule.returnAutomatically || schedule.manualUntil==null || schedule.manualUntil>g.clock.millis())
         val anchor=if(manualActive) LocalDate.parse(c.manualDate) else if(scheduleManual) LocalDate.parse(schedule.manualDate) else today.plusDays(c.dateOffset.toLong())
-        rv.setTextViewText(R.id.widget_school,school?.name ?: "한눈급식")
-        visible(rv,R.id.widget_school,d.school)
-        rv.setTextViewText(R.id.widget_title,c.kind.label)
-        rv.setTextViewText(R.id.widget_date,dateText(anchor,d))
-        visible(rv,R.id.widget_date,d.date || d.weekday)
-        visible(rv,R.id.widget_countdown,false);visible(rv,R.id.widget_eating,false)
-        val infoLines=if(height<130) 1 else 4
+        val openDate=if(c.kind!=WidgetKind.NEXT) anchor else when(selection) {
+            is Selection.Selected -> selection.date
+            is Selection.NeedsData -> selection.date
+            is Selection.Failure -> selection.date
+            else -> anchor
+        }
+        val activeManualType=schedule.mode==SelectionMode.MANUAL && (!schedule.returnAutomatically || schedule.manualUntil==null || schedule.manualUntil>g.clock.millis())
+        val openType=when(selection) {
+            is Selection.Selected -> selection.type
+            is Selection.NeedsData -> selection.type
+            else -> if(activeManualType) schedule.manualType else schedule.fixedType
+        }
+        val open=openIntent(c,openDate,openType,school?.id.orEmpty(),c.kind!=WidgetKind.NEXT)
+        val rows=mutableListOf<FitRow>()
+        val extras=mutableListOf<FitRow>()
+        var countdownTarget:Instant?=null
+        visible(rv,R.id.widget_countdown,false)
+        var title="${c.kind.label} ${dateText(anchor,d)}".trim()
+        fun row(label:String,text:String,pending:PendingIntent?=null,metadata:String?=null) {
+            fun labeled(value:String)=listOf(label,value).filter {it.isNotBlank()}.joinToString("  ")
+            rows += FitRow(labeled(text),pending ?: open,metadata?.let {labeled(it)})
+        }
         val state=when {
             school==null -> "학교를 선택해 주세요"
             !g.configured(p) && cache.lastSync(school.id)==null -> "급식 서버에 연결할 수 없습니다"
             else -> null
         }
-        if(state!=null) addRow(rv,c,"",if(height<130) if(school==null) "학교 선택" else "서버 연결" else state,if(height<130) 1 else 8,null)
+        if(state!=null) row("",state)
         else if(school!=null) when(c.kind) {
-            WidgetKind.NEXT -> {
-                when(selection) {
-                    is Selection.Selected -> {
-                        val date=selection.date;val type=selection.type
-                        rv.setTextViewText(R.id.widget_title,listOfNotNull(if(d.date) if(date==today) "오늘" else if(date==today.plusDays(1)) "내일" else null else null,if(d.mealType) type.label else "급식").joinToString(" "))
-                        rv.setTextViewText(R.id.widget_date,dateText(date,d))
-                        val details=detailIntent(c,date,type,school.id)
-                        val chrome=if(compactNext) 76+(20*fontScale).toInt()+(if(height>=170 && !(fontScale>1.5f && height<220)) (16*fontScale).toInt() else 0) else (160*fontScale).toInt()
-                        val supplements=(if(d.calories && !selection.meal?.calories.isNullOrBlank() && height>190) 22*fontScale else 0f)+(if(d.nextPreview && height>250) 38*fontScale else 0f)
-                        val lines=((height-chrome-supplements)/(18*fontScale)).toInt().coerceIn(1,16)
-                        addRow(rv,c,"",selection.meal?.let {menu(it,d,c.compact || compactNext)} ?: "등록된 급식이 없습니다",lines,details)
-                        if(d.calories && !selection.meal?.calories.isNullOrBlank() && height>190) addRow(rv,c,"",selection.meal!!.calories,1,details)
-                        if(d.eatingTime) {visible(rv,R.id.widget_eating,true);rv.setTextViewText(R.id.widget_eating,"식사 예정 ${eatingTime(schedule,type)}")}
-                        if(d.countdown && height>160) {
-                            val target=MealTiming.eatingInstant(date,type,schedule)
-                            if(target>g.clock.instant()) {
-                                val remaining=Duration.between(g.clock.instant(),target)
-                                if(c.liveCountdown && remaining.toHours()<24) {
-                                    visible(rv,R.id.widget_countdown,true)
-                                    rv.setChronometer(R.id.widget_countdown,MealTiming.chronometerBase(target,g.clock.instant(),SystemClock.elapsedRealtime()),"식사까지 %s (−는 경과)",true)
-                                    rv.setChronometerCountDown(R.id.widget_countdown,true)
-                                } else {
-                                    visible(rv,R.id.widget_countdown,false);visible(rv,R.id.widget_eating,true)
-                                    val relative=if(remaining.toDays()>0) "${remaining.toDays()}일 ${remaining.toHours()%24}시간" else "${remaining.toHours()}시간 ${remaining.toMinutes()%60}분"
-                                    rv.setTextViewText(R.id.widget_eating,(if(d.eatingTime) "${eatingTime(schedule,type)} · " else "")+"약 $relative 남음 (갱신 시점)")
-                                }
-                            } else if(!schedule.hidePassedCountdown) {visible(rv,R.id.widget_eating,true);rv.setTextViewText(R.id.widget_eating,"식사 예정 시간 지남")}
-                        }
-                        if(d.nextPreview && height>250) {
-                            val next=nextMeal(cache,school.id,date,type,schedule)
-                            next?.let {addRow(rv,c,"다음 ${shortDate(it.date)} ${it.type.label}",it.dishes.take(2).joinToString(" · ") {dish->dish.name},1,detailIntent(c,it.date,it.type,school.id))}
-                        }
-                        rv.setOnClickPendingIntent(R.id.widget_title,details)
+            WidgetKind.NEXT -> when(selection) {
+                is Selection.Selected -> {
+                    title=listOf(if(d.mealType) selection.type.label else "급식",dateText(selection.date,d)).filter {it.isNotBlank()}.joinToString(" ")
+                    val details=detailIntent(c,selection.date,selection.type,school.id)
+                    row("",selection.meal?.let {menu(it,d.copy(allergens=false))} ?: "등록된 급식이 없습니다",details,selection.meal?.let {mealText(it,d)})
+                    if(d.eatingTime) extras += FitRow("식사 예정 ${eatingTime(schedule,selection.type)}",details)
+                    if(d.countdown) {
+                        val remaining=Duration.between(g.clock.instant(),MealTiming.eatingInstant(selection.date,selection.type,schedule))
+                        if(!remaining.isNegative) {
+                            if(c.liveCountdown && remaining.toHours()<24) countdownTarget=MealTiming.eatingInstant(selection.date,selection.type,schedule)
+                            else extras += FitRow("약 ${remaining.toHours()}시간 ${remaining.toMinutes()%60}분 남음 (갱신 시점)",details)
+                        } else if(!schedule.hidePassedCountdown) extras += FitRow("식사 예정 시간 지남",details)
                     }
-                    is Selection.NeedsData -> {addRow(rv,c,"${shortDate(selection.date)} ${selection.type.label}","급식을 내려받기 전입니다",infoLines,null,inline=height<130);if(requestData && g.configured(p)) WorkScheduler.request(g.app,from=selection.date,to=selection.date.plusDays(20))}
-                    is Selection.Failure -> addRow(rv,c,"요청 실패",selection.message,infoLines,null,inline=height<130)
-                    is Selection.Warning -> addRow(rv,c,"설정 확인",selection.message,infoLines,null,inline=height<130)
-                    is Selection.Empty -> addRow(rv,c,"",selection.message,infoLines,null,inline=height<130)
-                    else -> Unit
+                    if(d.nextPreview) nextMeal(cache,school.id,selection.date,selection.type,schedule)?.let {
+                        extras += FitRow("다음 ${shortDate(it.date)} ${it.type.label}  ${menu(it,d)}",detailIntent(c,it.date,it.type,school.id))
+                    }
                 }
+                is Selection.NeedsData -> {
+                    title="${selection.type.label} ${dateText(selection.date,d)}".trim()
+                    row("","급식을 내려받기 전입니다")
+                    if(requestData && g.configured(p)) WorkScheduler.request(g.app,from=selection.date,to=selection.date.plusDays(20))
+                }
+                is Selection.Failure -> {
+                    title="${openType.label} ${dateText(selection.date,d)}".trim()
+                    row("요청 실패",selection.message)
+                }
+                is Selection.Warning -> row("설정 확인",selection.message)
+                is Selection.Empty -> row("",selection.message)
+                else -> Unit
             }
             WidgetKind.DAILY -> {
                 val types=MealType.entries.filter {it in schedule.enabledTypes}
-                if(types.isEmpty()) addRow(rv,c,"설정 확인","표시할 식사 종류를 선택해 주세요",3,null)
-                val visibleTypes=if(height<180 && types.size>1) listOf(types.firstOrNull {selected?.date==anchor && it==selected.type} ?: types.first()) else types
-                // Reserve the actual header, status and 48dp controls before allocating each meal.
-                // The former fixed 100dp subtraction clipped dinner in a 330dp-tall widget.
-                val systemScale=g.app.resources.configuration.fontScale
-                val chrome=20+48+4+(26+(if(d.school) 18 else 0)+(if(d.date || d.weekday) 18 else 0)+20)*systemScale
-                val perMeal=(height-chrome)/visibleTypes.size.coerceAtLeast(1)
-                val inline=height<240 || perMeal<21*systemScale+18*fontScale
-                val lines=if(height<240) ((height-100)/types.size.coerceAtLeast(1)/(18*fontScale)-1).toInt().coerceIn(1,6)
-                    else ((perMeal-3-(if(inline) 0f else 18*systemScale))/(18*fontScale)).toInt().coerceIn(1,6)
-                visibleTypes.forEach {type ->
-                    val mark=if(selected?.date==anchor && selected.type==type) "● " else ""
-                    addRow(rv,c,mark+if(d.mealType) type.label else "",summary(cache,school.id,anchor,type,c),lines,detailIntent(c,anchor,type,school.id),inline=inline)
-                }
-                if(visibleTypes.size<types.size && height>=130) addRow(rv,c,"","하루 전체 보기",1,openIntent(c,anchor,visibleTypes.first(),school.id,true))
+                if(types.isEmpty()) row("설정 확인","표시할 식사 종류를 선택해 주세요")
+                types.forEach {type->row((if(selected?.date==anchor && selected.type==type) "● " else "")+type.label,summary(cache,school.id,anchor,type,c),detailIntent(c,anchor,type,school.id),summary(cache,school.id,anchor,type,c,true))}
                 if(requestData) requestUnknown(cache,school,p,anchor,anchor)
             }
             WidgetKind.WEEKLY_SELECTED,WidgetKind.WEEKLY_ALL -> {
@@ -151,94 +140,130 @@ class WidgetRenderer(private val g: AppGraph) {
                     val monday=anchor.minusDays((anchor.dayOfWeek.value-1).toLong())
                     (0L..6L).map {monday.plusDays(it)}.filter {it.dayOfWeek.value !in schedule.excludedDays}
                 }
-                val types=if(c.kind==WidgetKind.WEEKLY_ALL) MealType.entries.filter {it in schedule.enabledTypes} else MealType.entries.filter {it in c.weeklyTypes && it in schedule.enabledTypes}
-                rv.setTextViewText(R.id.widget_date,if(dates.isNotEmpty() && d.date) "${shortDate(dates.first())} – ${shortDate(dates.last())}" else if(d.weekday) "제외 요일을 뺀 한 주" else "")
-                if(dates.isEmpty() || types.isEmpty()) addRow(rv,c,"설정 확인","요일과 식사 종류를 하나 이상 허용해 주세요",3,null)
-                // Reserve actual chrome and an overflow link before assigning menu lines.
-                val systemScale=g.app.resources.configuration.fontScale
-                val overhead=20+48+4+(22+16+(if(height>=330) 30 else 0))*systemScale
-                val available=(height-overhead-8).coerceAtLeast(20f)
-                val lineHeight=18*fontScale
-                val labelHeight=16*systemScale+3
-                val capacity=(available/(labelHeight+lineHeight)).toInt().coerceIn(1,7)
-                val visibleDates=if(dates.size>capacity) dates.take((capacity-1).coerceAtLeast(1)) else dates
-                val separateOverflow=visibleDates.size<dates.size && capacity>1
-                val overflowSpace=if(separateOverflow) lineHeight+3 else 0f
-                val rowLines=if(visibleDates.isEmpty()) 1 else (((available-overflowSpace)/visibleDates.size-labelHeight)/lineHeight).toInt().coerceIn(1,if(c.kind==WidgetKind.WEEKLY_ALL) 3 else 5)
-                visibleDates.forEach {date->
-                    val mealStates=types.joinToString(" · ") {t->t.label.take(1)+when(cache.availability(school.id,date,t)) {
-                        is Availability.Present -> " 있음";is Availability.Absent -> " 없음";Availability.Unknown -> " 미조회";is Availability.Failed -> " 오류"
-                    }}
-                    val registered=types.filter {cache.availability(school.id,date,it) is Availability.Present}
-                    val text=if(c.kind==WidgetKind.WEEKLY_ALL) {
-                        if(width<180 || rowLines==1) mealStates else if(registered.isNotEmpty()) registered.joinToString(if(rowLines>1) "\n" else " · ") {t->(if(d.mealType) "${t.label} " else "")+summary(cache,school.id,date,t,c,true)}
-                        else if(types.all {cache.availability(school.id,date,it) is Availability.Absent}) "등록된 급식 없음" else "급식을 확인하지 못했습니다. 앱에서 확인해 주세요"
-                    } else types.joinToString(if(rowLines>1) "\n" else " · ") {t-> (if(d.mealType) "${t.label} " else "")+summary(cache,school.id,date,t,c,true)}
-                    val moreHint=if(visibleDates.size<dates.size && !separateOverflow) " (${dates.size-visibleDates.size}일 더)" else ""
-                    val label=(if(date==today) "● " else "")+dateText(date,d).ifBlank {"급식"}+moreHint+(if(c.kind==WidgetKind.WEEKLY_ALL && rowLines>1 && width>=240 && d.mealType) " · $mealStates" else "")
-                    addRow(rv,c,label,text,rowLines,openIntent(c,date,types.firstOrNull() ?: MealType.LUNCH,school.id,true),inline=height<130)
-                }
-                if(separateOverflow) addRow(rv,c,"", "나머지 ${dates.size-visibleDates.size}일 보기",1,openIntent(c,anchor,types.firstOrNull() ?: MealType.LUNCH,school.id,true))
+                val types=MealType.entries.filter {it in schedule.enabledTypes && (c.kind==WidgetKind.WEEKLY_ALL || it in c.weeklyTypes)}
+                title=if(types.size==1) types.first().label+" 한 주" else c.kind.label
+                if(dates.isNotEmpty()) title+=" ${dateText(dates.first(),d)}–${dateText(dates.last(),d)}"
+                if(dates.isEmpty() || types.isEmpty()) row("설정 확인","요일과 식사 종류를 하나 이상 허용해 주세요")
+                dates.forEach {date->types.forEach {type->
+                    row("${dateText(date,d).ifBlank {shortDate(date)}} ${type.label}",summary(cache,school.id,date,type,c),detailIntent(c,date,type,school.id),summary(cache,school.id,date,type,c,true))
+                }}
                 if(requestData && dates.isNotEmpty()) requestUnknown(cache,school,p,dates.first(),dates.last())
             }
         }
-        val status=if(school==null) "위젯 설정에서 학교를 선택하세요" else listOfNotNull(
-            if(manualActive || c.dateOffset!=0) "수동 선택 중" else null,
-            if(d.freshness) (if(!g.app.isOnline()) "오프라인 (저장된 급식)" else cache.latestError(school.id)) ?: if(cache.lastSync(school.id)==null) "내려받기 대기" else if(cache.stale(school.id,g.clock.instant(),selected?.date ?: anchor)) "갱신 전 급식" else "저장된 급식" else null,
-            if(d.lastSync) "동기화 ${syncLabel(cache.lastSync(school.id))}" else null
-        ).joinToString(" · ")
-        rv.setTextViewText(R.id.widget_status,status);visible(rv,R.id.widget_status,status.isNotBlank())
-        rv.setContentDescription(R.id.widget_root,listOfNotNull(school?.name,selected?.let {"${shortDate(it.date)} ${it.type.label}"}).joinToString(" · "))
-        val openDate=selected?.date ?: anchor;val openType=selected?.type ?: MealType.LUNCH
-        rv.setOnClickPendingIntent(R.id.widget_root,openIntent(c,openDate,openType,school?.id.orEmpty(),c.kind!=WidgetKind.NEXT))
-        rv.setOnClickPendingIntent(R.id.widget_settings,configIntent(c.id))
-        for((view,action) in listOf(R.id.widget_previous to "previous",R.id.widget_next to "next",R.id.widget_auto to "auto",R.id.widget_refresh to "refresh")) rv.setOnClickPendingIntent(view,actionIntent(c.id,action))
-        if(width<260) {visible(rv,R.id.widget_previous,false);visible(rv,R.id.widget_next,false)}
-        if(width<180) {visible(rv,R.id.widget_auto,false);visible(rv,R.id.widget_refresh,false)}
-        if(height<200) {
-            visible(rv,R.id.widget_school,false);visible(rv,R.id.widget_eating,false)
-            visible(rv,R.id.widget_countdown,false);visible(rv,R.id.widget_status,false)
-            rv.setInt(R.id.widget_title,"setMaxLines",1)
-            rv.setTextViewTextSize(R.id.widget_title,android.util.TypedValue.COMPLEX_UNIT_SP,15f)
+        // Work in physical dp: saved font scale is a preferred upper size, not a reason
+        // to drop dishes. The 12dp floor remains readable even with combined large fonts.
+        val density=g.app.resources.displayMetrics.density
+        fun px(dp:Float)=(dp*density).toInt()
+        val padding=8
+        rv.setViewPadding(R.id.widget_content,px(padding.toFloat()),px(padding.toFloat()),px(padding.toFloat()),px(padding.toFloat()))
+        val contentWidth=(width-padding*2).coerceAtLeast(1)
+        val bodyWidth=px(contentWidth.toFloat())
+        val preferred=(if(c.kind==WidgetKind.NEXT) 15f else 13f)*c.fontScale.coerceIn(.8f,1.4f)*g.app.resources.configuration.fontScale
+        var size=preferred.coerceAtLeast(12f)
+        val available=px((height-padding*2-48).coerceAtLeast(1).toFloat())
+        fun total(items:List<FitRow>,font:Float)=items.sumOf {textLayout(it.text,bodyWidth,font*density).height}
+        while(size>12f && total(rows,size)>available) size=(size-.5f).coerceAtLeast(12f)
+        val fullFits=total(rows,size)<=available
+        // Optional school/sync/time information only receives space left by complete menus.
+        var budget=available
+        visible(rv,R.id.widget_school,false)
+        visible(rv,R.id.widget_status,false)
+        if(fullFits) {
+            rows.indices.forEach {index->
+                rows[index].metadata?.let {metadata->
+                    val candidate=rows.toMutableList().apply {set(index,rows[index].copy(text=metadata))}
+                    if(total(candidate,size)<=budget) rows[index]=candidate[index]
+                }
+            }
+            if(!c.compact) {
+                val spacious=rows.map {it.copy(text=it.text.replace(" · ","\n"))}
+                if(total(spacious,size)<=budget) {rows.clear();rows.addAll(spacious)}
+            }
+            val schoolHeight=px(16f)
+            if(d.school && school!=null && total(rows,size)+schoolHeight<=budget) {
+                visible(rv,R.id.widget_school,true);rv.setTextViewText(R.id.widget_school,school.name)
+                rv.setTextViewTextSize(R.id.widget_school,android.util.TypedValue.COMPLEX_UNIT_PX,12f*density)
+                budget-=schoolHeight
+            }
+            for(extra in extras) if(total(rows+extra,size)<=budget) rows+=extra
+            countdownTarget?.let {target->
+                if(total(rows,size)+schoolHeight<=budget) {
+                    visible(rv,R.id.widget_countdown,true)
+                    rv.setTextViewTextSize(R.id.widget_countdown,android.util.TypedValue.COMPLEX_UNIT_PX,12f*density)
+                    rv.setChronometer(R.id.widget_countdown,MealTiming.chronometerBase(target,g.clock.instant(),SystemClock.elapsedRealtime()),"식사까지 %s (−는 경과)",true)
+                    rv.setChronometerCountDown(R.id.widget_countdown,true)
+                    budget-=schoolHeight
+                }
+            }
+            val status=if(school==null) "설정 > 위젯 관리에서 학교 선택" else listOfNotNull(
+                if(manualActive || c.dateOffset!=0) "수동 선택 중" else null,
+                if(d.freshness) (if(!g.app.isOnline()) "오프라인 (저장된 급식)" else cache.latestError(school.id)) ?: if(cache.lastSync(school.id)==null) "내려받기 대기" else if(cache.stale(school.id,g.clock.instant(),openDate)) "갱신 전 급식" else "저장된 급식" else null,
+                if(d.lastSync) "동기화 ${syncLabel(cache.lastSync(school.id))}" else null
+            ).joinToString(" · ")
+            if(status.isNotBlank() && total(rows,size)+schoolHeight<=budget) {
+                visible(rv,R.id.widget_status,true);rv.setTextViewText(R.id.widget_status,status)
+                rv.setTextViewTextSize(R.id.widget_status,android.util.TypedValue.COMPLEX_UNIT_PX,12f*density)
+                budget-=schoolHeight
+            }
         }
-        if(compactNext) {
-            visible(rv,R.id.widget_school,false);visible(rv,R.id.widget_status,false)
-            visible(rv,R.id.widget_eating,false);visible(rv,R.id.widget_countdown,false)
-            rv.setInt(R.id.widget_title,"setMaxLines",1)
-            rv.setTextViewTextSize(R.id.widget_title,android.util.TypedValue.COMPLEX_UNIT_SP,16f*c.fontScale.coerceIn(.8f,1.4f))
+        rv.setTextViewText(R.id.widget_title,title)
+        rv.setTextViewTextSize(R.id.widget_title,android.util.TypedValue.COMPLEX_UNIT_PX,(if(width<200) 12f else 14f)*density)
+        visible(rv,R.id.widget_date,false);visible(rv,R.id.widget_eating,false)
+        val lineHeight=textLayout("급식",bodyWidth,size*density).height
+        val capacity=(budget/lineHeight).coerceAtLeast(1)
+        val hidden=if(rows.size>capacity) rows.size-(capacity-1).coerceAtLeast(0) else 0
+        val shown=if(hidden>0) rows.take((capacity-1).coerceAtLeast(0)) else rows.toList()
+        var left=budget-(if(hidden>0) lineHeight else 0)
+        shown.forEachIndexed {index,item->
+            val fair=(left/(shown.size-index)).coerceAtLeast(lineHeight)
+            val wanted=textLayout(item.text,bodyWidth,size*density).height
+            val allocated=if(fullFits) wanted else minOf(wanted,fair/lineHeight*lineHeight)
+            addFitRow(rv,item,bodyWidth,size*density,allocated)
+            left-=allocated
         }
-        if(height<170 || fontScale>1.5f && height<220) visible(rv,R.id.widget_date,false)
-        if(c.kind==WidgetKind.DAILY && height<240) {visible(rv,R.id.widget_school,false);visible(rv,R.id.widget_status,false)}
-        if(c.kind==WidgetKind.DAILY && height in 180..209) {
-            visible(rv,R.id.widget_date,false)
-            rv.setTextViewText(R.id.widget_title,"하루 급식 ${dateText(anchor,d)}")
-            rv.setTextViewTextSize(R.id.widget_title,android.util.TypedValue.COMPLEX_UNIT_SP,15f)
-            rv.setInt(R.id.widget_title,"setMaxLines",1)
-        }
-        if(height<300 || c.kind!=WidgetKind.NEXT) {
-            val padding=(10*g.app.resources.displayMetrics.density).toInt()
-            rv.setViewPadding(R.id.widget_content,padding,padding,padding,padding)
-        }
-        if(c.kind in listOf(WidgetKind.WEEKLY_SELECTED,WidgetKind.WEEKLY_ALL) && height<330) {visible(rv,R.id.widget_school,false);visible(rv,R.id.widget_status,false)}
-        if(height<130) {visible(rv,R.id.widget_title,false);visible(rv,R.id.widget_date,false);visible(rv,R.id.widget_school,false);visible(rv,R.id.widget_status,false);visible(rv,R.id.widget_eating,false);visible(rv,R.id.widget_countdown,false)}
+        if(hidden>0) addFitRow(rv,FitRow("${hidden}끼 더 보기",open),bodyWidth,12f*density,lineHeight)
+        rv.setContentDescription(R.id.widget_root,listOfNotNull(school?.name,title).joinToString(" · "))
+        rv.setOnClickPendingIntent(R.id.widget_root,open)
+        rv.setOnClickPendingIntent(R.id.widget_title,open)
+        rv.setOnClickPendingIntent(R.id.widget_refresh,actionIntent(c.id,"refresh"))
         return rv
+    }
+    private data class FitRow(val text:String,val pending:PendingIntent,val metadata:String?=null)
+    private fun textLayout(text:String,width:Int,size:Float):android.text.StaticLayout {
+        val paint=android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {textSize=size}
+        val builder=android.text.StaticLayout.Builder.obtain(text,0,text.length,paint,width.coerceAtLeast(1))
+            .setIncludePad(false).setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE)
+        if(Build.VERSION.SDK_INT>=28) builder.setUseLineSpacingFromFallbacks(true)
+        return builder.build()
+    }
+    private fun addFitRow(rv:RemoteViews,item:FitRow,width:Int,size:Float,height:Int) {
+        val row=RemoteViews(g.app.packageName,R.layout.widget_row)
+        val layout=textLayout(item.text,width,size)
+        val lines=(0 until layout.lineCount).count {layout.getLineBottom(it)<=height}.coerceAtLeast(1)
+        var text=item.text
+        if(layout.height>height) {
+            val suffix="… 전체 보기"
+            var end=layout.getLineEnd((lines-1).coerceAtMost(layout.lineCount-1)).coerceAtMost(text.length)
+            while(end>0 && textLayout(text.take(end).trimEnd()+suffix,width,size).height>height) end--
+            text=text.take(end).trimEnd()+suffix
+        }
+        visible(row,R.id.row_label,false)
+        row.setTextViewText(R.id.row_menu,text)
+        row.setTextViewTextSize(R.id.row_menu,android.util.TypedValue.COMPLEX_UNIT_PX,size)
+        row.setInt(R.id.row_menu,"setMaxLines",lines)
+        row.setContentDescription(R.id.row_root,item.text)
+        row.setOnClickPendingIntent(R.id.row_root,item.pending)
+        rv.addView(R.id.widget_body,row)
     }
     private fun dateText(date:LocalDate,d:DisplayOptions)=date.format(DateTimeFormatter.ofPattern(when {d.date && d.weekday->"M/d (E)";d.date->"M/d";d.weekday->"E요일";else->""},Locale.KOREAN))
     private fun visible(rv:RemoteViews,id:Int,show:Boolean) = rv.setViewVisibility(id,if(show) View.VISIBLE else View.GONE)
-    private fun menu(meal:Meal,d:DisplayOptions,compact:Boolean)=meal.dishes.joinToString(if(compact) " · " else "\n") {it.name+if(d.allergens && it.allergens.isNotEmpty()) " (${it.allergens.joinToString(".")})" else ""}.ifBlank {"메뉴 상세는 앱에서 확인"}
-    private fun summary(cache:CacheSnapshot,school:String,date:LocalDate,type:MealType,c:WidgetConfig,brief:Boolean=false):String = when(val a=cache.availability(school,date,type)) {
-        is Availability.Present -> if(brief) a.meal.dishes.take(if(c.compact) 2 else 3).joinToString(" · ") {it.name+if(c.display.allergens && it.allergens.isNotEmpty()) " (${it.allergens.joinToString(".")})" else ""}+(if(a.meal.dishes.size>(if(c.compact) 2 else 3)) " 외" else "")+(if(c.display.calories && a.meal.calories.isNotBlank()) " · ${a.meal.calories}" else "") else menu(a.meal,c.display,c.compact)+(if(c.display.calories && a.meal.calories.isNotBlank()) "\n${a.meal.calories}" else "")
+    private fun menu(meal:Meal,d:DisplayOptions)=meal.dishes.joinToString(" · ") {it.name+if(d.allergens && it.allergens.isNotEmpty()) " (${it.allergens.joinToString(".")})" else ""}.ifBlank {"메뉴 상세는 앱에서 확인"}
+    private fun mealText(meal:Meal,d:DisplayOptions)=menu(meal,d)+(if(d.calories && meal.calories.isNotBlank()) " · ${meal.calories}" else "")
+    private fun summary(cache:CacheSnapshot,school:String,date:LocalDate,type:MealType,c:WidgetConfig,metadata:Boolean=false):String = when(val a=cache.availability(school,date,type)) {
+        is Availability.Present -> if(metadata) mealText(a.meal,c.display) else menu(a.meal,c.display.copy(allergens=false))
         is Availability.Absent -> "등록 없음"
         Availability.Unknown -> "내려받기 대기"
         is Availability.Failed -> "조회 실패. 새로고침해 주세요"
-    }
-    private fun addRow(rv:RemoteViews,c:WidgetConfig,label:String,text:String,lines:Int,pending:PendingIntent?,inline:Boolean=false) {
-        val row=RemoteViews(g.app.packageName,R.layout.widget_row)
-        row.setTextViewText(R.id.row_label,label);visible(row,R.id.row_label,label.isNotBlank() && !inline)
-        row.setTextViewText(R.id.row_menu,if(inline && label.isNotBlank()) "$label  $text" else text);row.setInt(R.id.row_menu,"setMaxLines",lines)
-        row.setTextViewTextSize(R.id.row_menu,android.util.TypedValue.COMPLEX_UNIT_SP,((if(c.kind==WidgetKind.NEXT) 15f else 13f)*c.fontScale.coerceIn(.8f,1.4f)).coerceAtLeast(12f))
-        pending?.let {row.setOnClickPendingIntent(R.id.row_root,it)}
-        rv.addView(R.id.widget_body,row)
     }
     private fun requestUnknown(cache:CacheSnapshot,school:School,p:AppSettings,from:LocalDate,to:LocalDate) {
         if(!g.configured(p)) return

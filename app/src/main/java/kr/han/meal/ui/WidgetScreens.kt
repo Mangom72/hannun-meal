@@ -118,7 +118,8 @@ import kr.han.meal.widget.*
                     1->{
                         PresetChoices(draft.preset){draft=draft.copy(preset=it,display=if(it==DisplayPreset.CUSTOM) draft.display else DisplayOptions.preset(it))}
                         WidgetPreview(vm,draft,height=if(draft.kind==WidgetKind.NEXT) 240 else 330)
-                        Text("글자 크기 ${"%.0f".format(draft.fontScale*100)}%")
+                        Text("선호 글자 크기 ${"%.0f".format(draft.fontScale*100)}%")
+                        Text("공간이 넉넉할 때 사용하는 크기입니다. 메뉴가 들어가도록 줄이며, 더 줄이기 어려우면 전체 보기로 안내합니다.",style=MaterialTheme.typography.bodySmall)
                         Slider(draft.fontScale,{draft=draft.copy(fontScale=it)},valueRange=.8f..1.4f,steps=5)
                         Text("배경 불투명도 ${draft.opacity}%")
                         Slider(draft.opacity.toFloat(),{draft=draft.copy(opacity=it.toInt())},valueRange=25f..100f)
