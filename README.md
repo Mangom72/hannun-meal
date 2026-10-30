@@ -84,4 +84,4 @@ NEIS 자료의 등록·수정 시점이나 서비스 상태에 따라 늦거나 
 
 [개발·빌드 안내](docs/DEVELOPMENT.md) · [아키텍처](docs/ARCHITECTURE.md) · [데이터 서비스 배포](docs/DEPLOY-DATA.md)
 
-현재 저장소에는 프로젝트 라이선스를 명시한 `LICENSE` 파일이 없습니다. 코드의 이용·수정·재배포 조건은 저장소 소유자에게 확인해 주세요.
+[MIT 라이선스](LICENSE)로 배포합니다.
