@@ -8,6 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -106,7 +108,7 @@ import kotlinx.coroutines.launch
 fun timeText(minute:Int)=if(minute==1440) "24:00" else "%02d:%02d".format(minute/60,minute%60)
 @Composable fun TimeButton(label:String,minute:Int,allowEnd:Boolean=false,onChange:(Int)->Unit) {
     val context=LocalContext.current
-    OutlinedButton(onClick={TimePickerDialog(context,{_,hour,min->onChange(if(allowEnd && hour==0 && min==0) 1440 else hour*60+min)},if(minute==1440) 0 else minute/60,minute%60,true).show()}) {Text("$label ${timeText(minute)}")}
+    OutlinedButton(onClick={TimePickerDialog(context,{_,hour,min->onChange(if(allowEnd && hour==0 && min==0) 1440 else hour*60+min)},if(minute==1440) 0 else minute/60,minute%60,true).show()},modifier=Modifier.heightIn(min=48.dp)) {Text("$label ${timeText(minute)}")}
 }
 @Composable fun ScheduleScreen(initial:Schedule,vm:MealViewModel,onSave:(Schedule)->Unit) {
     var draft by remember(initial) {mutableStateOf(initial)}
@@ -138,9 +140,10 @@ fun timeText(minute:Int)=if(minute==1440) "24:00" else "%02d:%02d".format(minute
 @Composable fun ScheduleControls(draft:Schedule,onChange:(Schedule)->Unit) {
     GroupLabel("기본 설정")
     Text("선택 모드",style=MaterialTheme.typography.titleMedium)
-    FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-        listOf(SelectionMode.AUTO to "시간 규칙",SelectionMode.NEXT to "다음 식사",SelectionMode.FIXED to "식사 고정",SelectionMode.MANUAL to "날짜 지정").forEach { (mode,label) -> FilterChip(draft.mode==mode,{onChange(draft.copy(mode=mode,manualDate=if(mode==SelectionMode.MANUAL) draft.manualDate ?: java.time.LocalDate.now(SEOUL).toString() else draft.manualDate,manualUntil=if(mode==SelectionMode.MANUAL) kr.han.meal.domain.scheduling.MealTiming.nextRefresh(draft,java.time.Clock.system(SEOUL)).toEpochMilli() else draft.manualUntil))},{Text(label)}) }
+    FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+        listOf(SelectionMode.AUTO to "시간 규칙",SelectionMode.NEXT to "다음 식사",SelectionMode.FIXED to "식사 고정",SelectionMode.MANUAL to "날짜 지정").forEach { (mode,label) -> FilterChip(draft.mode==mode,{onChange(draft.copy(mode=mode,manualDate=if(mode==SelectionMode.MANUAL) draft.manualDate ?: java.time.LocalDate.now(SEOUL).toString() else draft.manualDate,manualUntil=if(mode==SelectionMode.MANUAL) kr.han.meal.domain.scheduling.MealTiming.nextRefresh(draft,java.time.Clock.system(SEOUL)).toEpochMilli() else draft.manualUntil))},{Text(label)},modifier=Modifier.heightIn(min=48.dp)) }
     }
+    Text(selectionModeExplanation(draft.mode),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
     if(draft.mode==SelectionMode.FIXED) TypeChoice(draft.fixedType) {onChange(draft.copy(fixedType=it))}
     if(draft.mode==SelectionMode.MANUAL) {
         var showDate by remember {mutableStateOf(false)}
@@ -152,11 +155,12 @@ fun timeText(minute:Int)=if(minute==1440) "24:00" else "%02d:%02d".format(minute
             DatePickerDialog(onDismissRequest={showDate=false},confirmButton={TextButton(onClick={state.selectedDateMillis?.let {onChange(draft.copy(manualDate=java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneOffset.UTC).toLocalDate().toString(),manualUntil=kr.han.meal.domain.scheduling.MealTiming.nextRefresh(draft,java.time.Clock.system(SEOUL)).toEpochMilli()))};showDate=false}){Text("선택")}},dismissButton={TextButton(onClick={showDate=false}){Text("취소")}}) {DatePicker(state)}
         }
     }
-    Text("급식을 보지 않는 요일",style=MaterialTheme.typography.titleMedium)
-    FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) { listOf("월","화","수","목","금","토","일").forEachIndexed { i,s -> FilterChip(i+1 in draft.excludedDays,{onChange(draft.copy(excludedDays=if(i+1 in draft.excludedDays) draft.excludedDays-(i+1) else draft.excludedDays+(i+1)))},{Text(s)}) } }
+    Text("자동 선택에서 제외할 요일",style=MaterialTheme.typography.titleMedium)
+    FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) { listOf("월","화","수","목","금","토","일").forEachIndexed { i,s -> FilterChip(i+1 in draft.excludedDays,{onChange(draft.copy(excludedDays=if(i+1 in draft.excludedDays) draft.excludedDays-(i+1) else draft.excludedDays+(i+1)))},{Text(s)},modifier=Modifier.heightIn(min=48.dp).semantics {contentDescription="${s}요일 자동 선택 제외"}) } }
     if(draft.excludedDays.size==7) Notice("모든 요일이 제외되어 급식을 선택할 수 없습니다")
-    Text("표시할 식사",style=MaterialTheme.typography.titleMedium)
-    FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {MealType.entries.forEach {t->FilterChip(t in draft.enabledTypes,{onChange(draft.copy(enabledTypes=if(t in draft.enabledTypes) draft.enabledTypes-t else draft.enabledTypes+t))},{Text(t.label)})}}
+    Text("자동 선택에 포함할 식사",style=MaterialTheme.typography.titleMedium)
+    FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {MealType.entries.forEach {t->FilterChip(t in draft.enabledTypes,{onChange(draft.copy(enabledTypes=if(t in draft.enabledTypes) draft.enabledTypes-t else draft.enabledTypes+t))},{Text(t.label)},modifier=Modifier.heightIn(min=48.dp))}}
+    Text("제외한 요일과 식사도 오늘 화면에서 직접 선택해 볼 수 있습니다.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
     if(draft.enabledTypes.isEmpty()) Notice("식사 종류를 하나 이상 선택해 주세요")
     Text("등록된 급식이 없을 때",style=MaterialTheme.typography.titleMedium)
     ToggleRow("다음 등록 급식으로 건너뛰기",draft.missingPolicy==MissingPolicy.SKIP,{onChange(draft.copy(missingPolicy=if(it) MissingPolicy.SKIP else MissingPolicy.PRESERVE))},"끄면 선택한 날짜와 식사를 유지합니다. 아직 조회하지 않은 날짜는 결식으로 취급하지 않습니다.")
@@ -201,7 +205,7 @@ fun timeText(minute:Int)=if(minute==1440) "24:00" else "%02d:%02d".format(minute
     }
     Text("절전 설정에 따라 위젯 전환이 늦어질 수 있습니다. 갱신할 때 현재 시간에 맞는 급식을 표시합니다.")
 }
-@Composable fun TypeChoice(type:MealType,onChoice:(MealType)->Unit) { FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp)) {MealType.entries.forEach {t->FilterChip(t==type,{onChoice(t)},{Text(t.label)})}} }
+@Composable fun TypeChoice(type:MealType,onChoice:(MealType)->Unit) { FlowRow(horizontalArrangement=Arrangement.spacedBy(6.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {MealType.entries.forEach {t->FilterChip(t==type,{onChoice(t)},{Text(t.label)},modifier=Modifier.heightIn(min=48.dp))}} }
 
 @Composable fun DisplayControls(options:DisplayOptions,onChange:(DisplayOptions)->Unit) {
     ToggleRow("날짜",options.date,{onChange(options.copy(date=it))})
@@ -219,18 +223,18 @@ fun timeText(minute:Int)=if(minute==1440) "24:00" else "%02d:%02d".format(minute
 @Composable fun AppearanceScreen(p:AppSettings,vm:MealViewModel,onUpdate:((AppSettings)->AppSettings)->Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
         GroupLabel("테마와 색상")
-        FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {listOf("SYSTEM" to "시스템","LIGHT" to "라이트","DARK" to "다크").forEach {(v,label)->FilterChip(p.theme==v,{onUpdate {it.copy(theme=v)}},{Text(label)})}}
+        FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {listOf("SYSTEM" to "시스템","LIGHT" to "라이트","DARK" to "다크").forEach {(v,label)->FilterChip(p.theme==v,{onUpdate {it.copy(theme=v)}},{Text(label)},modifier=Modifier.heightIn(min=48.dp))}}
         ToggleRow("Material You 색상",p.dynamicColor,{v->onUpdate {it.copy(dynamicColor=v)}},"Android 12 이상에서 배경화면 색상 사용")
-        FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {listOf("숲","라벤더","살구").forEachIndexed {i,s->FilterChip(p.color==i,{onUpdate {it.copy(color=i,dynamicColor=false)}},{Text(s)})}}
+        FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {listOf("숲","라벤더","살구").forEachIndexed {i,s->FilterChip(p.color==i,{onUpdate {it.copy(color=i,dynamicColor=false)}},{Text(s)},modifier=Modifier.heightIn(min=48.dp))}}
         GroupLabel("글자와 메뉴")
         Text("글자 크기 ${"%.0f".format(p.fontScale*100)}%")
-        Slider(p.fontScale,{v->onUpdate {it.copy(fontScale=v)}},valueRange=.8f..1.4f,steps=5)
+        Slider(p.fontScale,{v->onUpdate {it.copy(fontScale=v)}},modifier=Modifier.heightIn(min=48.dp).semantics {contentDescription="글자 크기"},valueRange=.8f..1.4f,steps=5)
         ToggleRow("간결한 메뉴 표시",p.compact,{v->onUpdate {it.copy(compact=v)}})
         GroupLabel("위젯 미리보기", "새 위젯에 적용할 기본값입니다. 기존 위젯은 개별 설정을 사용합니다. 밝은 모드와 어두운 모드는 기기 설정을 따릅니다.")
         PresetChoices(p.preset) {preset->onUpdate {it.copy(preset=preset,display=if(preset==DisplayPreset.CUSTOM) it.display else DisplayOptions.preset(preset))}}
         WidgetPreview(vm,previewConfig(p,WidgetKind.NEXT),height=240)
         Text("위젯 배경 불투명도 ${p.opacity}%")
-        Slider(p.opacity.toFloat(),{v->onUpdate {it.copy(opacity=v.toInt())}},valueRange=25f..100f)
+        Slider(p.opacity.toFloat(),{v->onUpdate {it.copy(opacity=v.toInt())}},modifier=Modifier.heightIn(min=48.dp).semantics {contentDescription="위젯 배경 불투명도"},valueRange=25f..100f)
         ToggleRow("남은 시간 초 단위 표시",p.liveCountdown,{v->onUpdate {it.copy(liveCountdown=v)}},"식사 시간이 지나면 갱신될 때까지 경과 시간이 음수로 표시될 수 있습니다. 끄면 마지막 갱신 시점의 남은 시간을 표시합니다.")
         DisclosureSection("위젯에 표시할 정보") {DisplayControls(p.display) {d->onUpdate {it.copy(display=d,preset=DisplayPreset.CUSTOM)}}}
     }

@@ -8,6 +8,13 @@ import org.junit.Test
 import java.time.*
 
 class AdaptivePresentationTest {
+    @Test fun scheduleExplanationsDistinguishTimeRulesNextMealAndFixedType() {
+        assertTrue(selectionModeExplanation(SelectionMode.AUTO).contains("시간 규칙"))
+        assertTrue(selectionModeExplanation(SelectionMode.NEXT).contains("식사 시간"))
+        assertTrue(selectionModeExplanation(SelectionMode.FIXED).contains("종류를 유지"))
+        assertEquals("지정한 날짜와 식사를 표시합니다.",selectionModeExplanation(SelectionMode.MANUAL))
+        assertEquals(4,SelectionMode.entries.map(::selectionModeExplanation).distinct().size)
+    }
     @Test fun childScreensKeepTheirOriginatingNavigationDestinationSelected() {
         assertEquals("home",navigationRoot("school",listOf("home")))
         assertEquals("weekly",navigationRoot("school",listOf("weekly")))

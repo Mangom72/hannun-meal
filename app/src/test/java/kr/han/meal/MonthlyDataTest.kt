@@ -71,6 +71,27 @@ class MonthlyDataTest {
             }
         } finally {server.shutdown()}
     }
+    @Test fun duplicateDateAndTypeResponsesDoNotReplaceValidMemoryCache()=runBlocking {
+        val server=MockWebServer();server.start()
+        try {
+            val valid=Json.parseToJsonElement(payload()).jsonObject
+            val row=valid["meals"]!!.jsonArray.single().jsonObject
+            val conflicting=JsonObject(row.toMutableMap().apply {put("raw",JsonPrimitive("다른 메뉴"))})
+            server.enqueue(MockResponse().setBody(payload()))
+            val client=MealApiClient(PublicJson(OkHttpClient()),clock)
+            val endpoint=server.url("/").toString()
+            val month=YearMonth.of(2026,10)
+            val cached=client.month(endpoint,school,month)
+            for(duplicate in listOf(row,conflicting)) {
+                val invalid=JsonObject(valid.toMutableMap().apply {put("meals",JsonArray(listOf(row,duplicate)))})
+                server.enqueue(MockResponse().setBody(invalid.toString()))
+                try {client.month(endpoint,school,month,true);fail("duplicate response accepted")}
+                catch(e:NeisException) {assertEquals(ErrorKind.INVALID,e.kind)}
+                assertEquals(cached,client.month(endpoint,school,month))
+            }
+            assertEquals(3,server.requestCount)
+        } finally {server.shutdown()}
+    }
     @Test fun endpointsCannotContainCredentialsKeysFragmentsOrDirectNeis() {
         for(url in listOf("https://u:p@api.example/","https://api.example/?KEY=secret","https://api.example/#secret","https://open.neis.go.kr/hub/","http://remote.example/")) assertThrows(NeisException::class.java) {publicEndpoint(url)}
     }

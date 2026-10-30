@@ -61,6 +61,56 @@ class MealSelectorTest {
     }
     @Test fun nextAvailableUsesEatingTime()=check("2026-10-26T13:00:00","2026-10-26",MealType.DINNER,Schedule(mode=SelectionMode.NEXT))
     @Test fun fixedMode()=check("2026-10-26T00:30:00","2026-10-26",MealType.LUNCH,Schedule(mode=SelectionMode.FIXED))
+    @Test fun explicitManualIgnoresAutomaticFiltersAndRules() {
+        val manual=Schedule(mode=SelectionMode.MANUAL,manualDate="2026-10-31",manualType=MealType.BREAKFAST,returnAutomatically=false)
+        for(s in listOf(manual,manual.copy(enabledTypes=setOf(MealType.LUNCH)),
+            manual.copy(excludedDays=(1..7).toSet()),manual.copy(enabledTypes=emptySet()),
+            manual.copy(rules=emptyList()),manual.copy(rules=defaultRules()+TimeRule(30,90,RuleAction())))) {
+            val calls=mutableListOf<Pair<LocalDate,MealType>>()
+            val result=select("2026-10-31T09:00:00",s) {d,t->calls.add(d to t);present(d,t)}
+            assertEquals(Selection.Selected(LocalDate.parse("2026-10-31"),MealType.BREAKFAST,
+                present(LocalDate.parse("2026-10-31"),MealType.BREAKFAST).meal),result)
+            assertEquals(listOf(LocalDate.parse("2026-10-31") to MealType.BREAKFAST),calls)
+        }
+    }
+    @Test fun explicitManualLooksUpExactTupleOnceForEveryAvailability() {
+        val date=LocalDate.parse("2026-10-31");val type=MealType.BREAKFAST
+        val meal=present(date,type).meal
+        val statuses=listOf(Availability.Present(meal),Availability.Absent(Instant.EPOCH),Availability.Unknown,Availability.Failed("offline"))
+        val expected=listOf(Selection.Selected(date,type,meal),Selection.Selected(date,type,null,true),
+            Selection.NeedsData(date,type),Selection.Failure(date,"offline"))
+        for(policy in MissingPolicy.entries) for(i in statuses.indices) {
+            val calls=mutableListOf<Pair<LocalDate,MealType>>()
+            val result=select("2026-10-31T09:00:00",Schedule(mode=SelectionMode.MANUAL,
+                manualDate=date.toString(),manualType=type,returnAutomatically=false,missingPolicy=policy)) {d,t->
+                calls.add(d to t);statuses[i]
+            }
+            assertEquals(expected[i],result)
+            assertEquals(listOf(date to type),calls)
+        }
+    }
+    @Test fun invalidManualDateFallsBackToTodayWithoutSearching() {
+        check("2026-10-31T09:00:00","2026-10-31",MealType.BREAKFAST,
+            Schedule(mode=SelectionMode.MANUAL,manualDate="invalid",manualType=MealType.BREAKFAST,returnAutomatically=false))
+    }
+    @Test fun manualExpiryBeforeExactlyAndAfterBoundary() {
+        val until=clock("2026-10-26T08:00:00").millis()
+        val manual=Schedule(mode=SelectionMode.MANUAL,manualDate="2026-10-31",manualType=MealType.BREAKFAST,manualUntil=until)
+        check("2026-10-26T07:59:59","2026-10-31",MealType.BREAKFAST,manual)
+        check("2026-10-26T08:00:00","2026-10-26",MealType.LUNCH,manual)
+        check("2026-10-26T08:00:01","2026-10-26",MealType.LUNCH,manual)
+        check("2026-10-26T08:00:01","2026-10-31",MealType.BREAKFAST,manual.copy(returnAutomatically=false))
+    }
+    @Test fun widgetManualExactTupleBeforeExpiryAndAutomaticAtBoundary() {
+        val until=clock("2026-10-26T08:00:00").instant()
+        val config=WidgetConfig(1,manualDate="2026-10-31",manualType=MealType.BREAKFAST,manualUntil=until.toEpochMilli())
+        val before=effectiveWidgetSchedule(config,until.minusMillis(1))
+        assertEquals(SelectionMode.MANUAL,before.mode)
+        check("2026-10-26T07:59:59","2026-10-31",MealType.BREAKFAST,before)
+        val at=effectiveWidgetSchedule(config,until)
+        assertEquals(config.schedule,at)
+        check("2026-10-26T08:00:00","2026-10-26",MealType.LUNCH,at)
+    }
     @Test fun manualReturnsAtBoundary() {
         val c=clock("2026-10-26T08:00:00")
         check("2026-10-26T08:00:00","2026-10-26",MealType.LUNCH,Schedule(mode=SelectionMode.MANUAL,manualDate="2026-10-28",manualType=MealType.DINNER,manualUntil=c.millis()))

@@ -42,7 +42,7 @@ internal fun allergyLabel(numbers:List<Int>)=numbers.distinct().filter {it in 1.
 
 @Composable fun SchoolToolbarTitle(school:School,fontScale:Float,caption:String="한눈급식",onChange:()->Unit) {
     val large=LocalDensity.current.fontScale*fontScale>1.3f
-    Column(Modifier.fillMaxWidth().heightIn(min=48.dp).clickable(role=Role.Button,onClick=onChange),verticalArrangement=Arrangement.Center) {
+    Column(Modifier.fillMaxWidth().heightIn(min=48.dp).clickable(role=Role.Button,onClickLabel="학교 변경",onClick=onChange),verticalArrangement=Arrangement.Center) {
         if(!large) Text(school.region.ifBlank {caption},maxLines=1,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Text(school.name,style=MaterialTheme.typography.titleMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
     }
@@ -100,12 +100,13 @@ internal fun allergyLabel(numbers:List<Int>)=numbers.distinct().filter {it in 1.
             LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(start=24.dp,end=24.dp,bottom=24.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                 item {
                     FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                        Text("식사 ${eatingTime(schedule,target.type)}",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("식사 예정 ${eatingTime(schedule,target.type)}",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                         if(status is Availability.Present && status.meal.calories.isNotBlank()) Text(status.meal.calories,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 if(status is Availability.Present) {
                     item {SelectionContainer {MenuLines(status.meal,showAllergens=true,large=true)}}
+                    item {Text("알레르기 번호가 없어도 알레르기 유발 식품이 없다는 뜻은 아닙니다. 알레르기가 있다면 먹기 전에 학교에 확인해 주세요.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
                     item {DisclosureSection("영양 정보") {SelectionContainer {Text(status.meal.nutrition.ifBlank {"등록된 영양 정보가 없습니다"},style=MaterialTheme.typography.bodyMedium)}}}
                     item {DisclosureSection("원산지") {SelectionContainer {Text(status.meal.origin.ifBlank {"등록된 원산지 정보가 없습니다"},style=MaterialTheme.typography.bodyMedium)}}}
                     item {DisclosureSection("알레르기 번호 안내") {Text(allergyLabel((1..19).toList()),style=MaterialTheme.typography.bodyMedium)}}

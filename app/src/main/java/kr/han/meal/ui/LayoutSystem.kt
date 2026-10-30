@@ -10,6 +10,50 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import java.time.LocalDate
+import kr.han.meal.domain.model.*
+
+internal fun focusedDateContext(date:LocalDate,today:LocalDate)=when(date) {
+    today->"오늘"
+    today.plusDays(1)->"내일"
+    else->if(date.isBefore(today)) "지난 날짜" else "이후 날짜"
+}
+internal fun effectiveSelectionMode(schedule:Schedule,nowMillis:Long)=
+    if(schedule.mode==SelectionMode.MANUAL && schedule.returnAutomatically && schedule.manualUntil?.let {nowMillis>=it}==true) SelectionMode.AUTO else schedule.mode
+
+internal fun selectionFallbackType(schedule:Schedule,nowMillis:Long)=
+    if(effectiveSelectionMode(schedule,nowMillis)==SelectionMode.MANUAL) schedule.manualType else schedule.fixedType
+
+internal fun selectionModeLabel(schedule:Schedule,nowMillis:Long,manuallyBrowsing:Boolean=false):String {
+    return if(manuallyBrowsing) "수동 선택" else when(effectiveSelectionMode(schedule,nowMillis)) {
+        SelectionMode.AUTO->"자동 선택"
+        SelectionMode.NEXT->"다음 식사 선택"
+        SelectionMode.FIXED->"식사 고정"
+        SelectionMode.MANUAL->"수동 선택"
+    }
+}
+internal enum class MealEntryAction(val label:String) {
+    DETAIL("알레르기·상세"), DOWNLOAD("내려받기"), RETRY("다시 시도")
+}
+/** Detail remains discoverable independently of compact mode or widget display preferences. */
+internal fun mealEntryAction(status:Availability)=when(status) {
+    is Availability.Present->MealEntryAction.DETAIL
+    Availability.Unknown->MealEntryAction.DOWNLOAD
+    is Availability.Failed->MealEntryAction.RETRY
+    is Availability.Absent->null
+}
+internal fun mealActionLabel(date:LocalDate,type:MealType,status:Availability)=
+    "${dateLabel(date)} ${type.label} "+when(mealEntryAction(status)) {
+        MealEntryAction.DETAIL->"알레르기·상세 보기"
+        MealEntryAction.DOWNLOAD->"급식 내려받기"
+        MealEntryAction.RETRY->"다시 시도"
+        null->"등록된 급식 없음"
+    }
+internal fun selectionModeExplanation(mode:SelectionMode)=when(mode) {
+    SelectionMode.AUTO->"설정한 시간 규칙에 따라 날짜와 식사를 선택합니다."
+    SelectionMode.NEXT->"식사 시간을 기준으로 다음 식사를 선택합니다."
+    SelectionMode.FIXED->"선택한 식사 종류를 유지하며 날짜를 선택합니다."
+    SelectionMode.MANUAL->"지정한 날짜와 식사를 표시합니다."
+}
 
 /** Readable measure, shared gutters and semantic grouping; never stretch prose to a tablet edge. */
 internal object MealLayout {

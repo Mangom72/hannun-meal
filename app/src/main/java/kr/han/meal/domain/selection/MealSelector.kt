@@ -19,12 +19,22 @@ object RuleValidator {
 /** No IO: unknown coverage stops search and asks the caller to load it. Only confirmed absence can be skipped. */
 class MealSelector(private val clock: Clock = Clock.system(SEOUL), private val horizon: Int = 21) {
     fun select(schedule: Schedule, lookup: (LocalDate, MealType) -> Availability): Selection {
+        val now = clock.instant().atZone(SEOUL)
+        val effectiveMode = if(schedule.mode == SelectionMode.MANUAL && schedule.returnAutomatically && schedule.manualUntil?.let { clock.millis() >= it } == true) SelectionMode.AUTO else schedule.mode
+        if(effectiveMode == SelectionMode.MANUAL) {
+            val date=runCatching {LocalDate.parse(schedule.manualDate)}.getOrElse {now.toLocalDate()}
+            val type=schedule.manualType
+            return when(val status=lookup(date,type)) {
+                is Availability.Present -> Selection.Selected(date,type,status.meal)
+                is Availability.Absent -> Selection.Selected(date,type,null,true)
+                Availability.Unknown -> Selection.NeedsData(date,type)
+                is Availability.Failed -> Selection.Failure(date,status.message)
+            }
+        }
         if(schedule.excludedDays.containsAll((1..7).toList())) return Selection.Warning("모든 요일이 제외되어 있습니다. 요일을 하나 이상 허용해 주세요")
         if(schedule.enabledTypes.isEmpty()) return Selection.Warning("표시할 식사 종류를 하나 이상 선택해 주세요")
         RuleValidator.validate(schedule.rules)?.let { return Selection.Warning(it) }
-        val now = clock.instant().atZone(SEOUL)
         val minute = now.hour * 60 + now.minute
-        val effectiveMode = if(schedule.mode == SelectionMode.MANUAL && schedule.returnAutomatically && schedule.manualUntil?.let { clock.millis() >= it } == true) SelectionMode.AUTO else schedule.mode
         var nextMode = effectiveMode == SelectionMode.NEXT
         val action = when(effectiveMode) {
             SelectionMode.AUTO -> schedule.rules.first { it.contains(minute) }.action.also { nextMode = it.nextAvailable }
