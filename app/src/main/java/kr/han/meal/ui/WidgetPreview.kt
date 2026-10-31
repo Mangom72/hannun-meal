@@ -4,6 +4,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.RemoteViews
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,6 +18,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kr.han.meal.domain.model.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 internal fun previewConfig(p:AppSettings,kind:WidgetKind)=WidgetConfig(
     id=-1-kind.ordinal,kind=kind,school=p.school,schedule=p.schedule,display=p.display,preset=p.preset,
@@ -31,12 +34,17 @@ internal fun previewConfig(p:AppSettings,kind:WidgetKind)=WidgetConfig(
     Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center) {
         BoxWithConstraints(Modifier.widthIn(max=width.dp).fillMaxWidth()) {
             val measuredWidth=maxWidth.value.toInt().coerceAtLeast(100)
-            val remote=remember(config,p,cache,measuredWidth,height,configuration) {vm.graph.renderer.render(config,config.school ?: p.school,p,cache,measuredWidth,height,requestData=false)}
+            var remote by remember { mutableStateOf<RemoteViews?>(null) }
+            LaunchedEffect(config,p,cache,measuredWidth,height,configuration) {
+                remote=withContext(Dispatchers.IO) {
+                    vm.graph.renderer.render(config,config.school ?: p.school,p,cache,measuredWidth,height,requestData=false)
+                }
+            }
             AndroidView(factory={ctx->object:FrameLayout(ctx) {
                 override fun onInterceptTouchEvent(event:MotionEvent?)=true
             }.apply {importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS}},update={host->
                 host.removeAllViews()
-                val rendered=remote.apply(context,host)
+                val rendered=remote?.apply(context,host) ?: return@AndroidView
                 fun disableActions(view:View) {
                     view.setOnClickListener(null);view.isClickable=false;view.isFocusable=false
                     view.importantForAccessibility=View.IMPORTANT_FOR_ACCESSIBILITY_NO

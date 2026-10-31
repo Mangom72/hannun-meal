@@ -28,6 +28,64 @@ import java.time.*
 @Config(sdk=[28],application=Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class WidgetRenderTest {
+    @Test fun backgroundsApplyReapplyAndReturnToThemeWithoutStaleCustomText()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Application>()
+        val g=AppGraph(context,Clock.fixed(Instant.parse("2026-10-31T01:00:00Z"),SEOUL),startBackground=false)
+        val source=File.createTempFile("widget-background-",".png",context.cacheDir)
+        val white=Bitmap.createBitmap(64,64,Bitmap.Config.ARGB_8888).apply {eraseColor(android.graphics.Color.WHITE)}
+        source.outputStream().use {white.compress(Bitmap.CompressFormat.PNG,100,it)};white.recycle()
+        var imageId:String?=null
+        try {
+            val token=g.widgetBackgrounds.import(android.net.Uri.fromFile(source));imageId=token
+            val p=AppSettings()
+            val base=WidgetConfig(650,opacity=100)
+            suspend fun render(config:WidgetConfig)=withContext(Dispatchers.IO) {g.renderer.render(config,null,p,CacheSnapshot(),320,240,requestData=false)}
+            val dark=render(base.copy(customBackgroundColor=android.graphics.Color.BLACK))
+            assertEquals(R.layout.widget_meal_custom,dark.layoutId)
+            val host=dark.apply(context,FrameLayout(context))
+            assertEquals(android.graphics.Color.WHITE,host.findViewById<TextView>(R.id.widget_title).currentTextColor)
+            val light=render(base.copy(customBackgroundColor=android.graphics.Color.WHITE))
+            light.reapply(context,host)
+            assertEquals(android.graphics.Color.BLACK,host.findViewById<TextView>(R.id.widget_title).currentTextColor)
+            val image=render(base.copy(backgroundMode=WidgetBackgroundMode.IMAGE,backgroundImageId=token,opacity=61))
+            image.reapply(context,host)
+            assertEquals(android.graphics.Color.WHITE,host.findViewById<TextView>(R.id.widget_title).currentTextColor)
+            assertEquals(61*255/100,host.findViewById<android.widget.ImageView>(R.id.widget_background).imageAlpha)
+            val directory=File("build/reports/widget-previews/backgrounds").apply {mkdirs()}
+            suspend fun snapshot(name:String,config:WidgetConfig) {
+                val remote=render(config)
+                val view=remote.apply(context,FrameLayout(context))
+                view.measure(View.MeasureSpec.makeMeasureSpec(320,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(240,View.MeasureSpec.EXACTLY));view.layout(0,0,320,240)
+                val bitmap=Bitmap.createBitmap(320,240,Bitmap.Config.ARGB_8888)
+                view.draw(Canvas(bitmap))
+                File(directory,"$name.png").outputStream().use {bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()
+            }
+            snapshot("custom-dark",base.copy(customBackgroundColor=android.graphics.Color.BLACK))
+            snapshot("custom-light",base.copy(customBackgroundColor=android.graphics.Color.WHITE))
+            snapshot("image-white-opaque",base.copy(backgroundMode=WidgetBackgroundMode.IMAGE,backgroundImageId=token))
+            for(color in 0..2) {
+                val old=render(base.copy(color=color))
+                assertNotEquals("Layout identity makes launcher reinflate custom text on return to a preset",image.layoutId,old.layoutId)
+                val oldView=old.apply(context,FrameLayout(context))
+                assertEquals(context.getColor(R.color.widget_title),oldView.findViewById<TextView>(R.id.widget_title).currentTextColor)
+                snapshot("legacy-$color",base.copy(color=color))
+            }
+            val offConfig=base.copy(backgroundEnabled=false,backgroundMode=WidgetBackgroundMode.IMAGE,backgroundImageId=token,customBackgroundColor=android.graphics.Color.BLACK)
+            val off=render(offConfig)
+            assertNotEquals(image.layoutId,off.layoutId)
+            val offView=off.apply(context,FrameLayout(context))
+            assertEquals(View.GONE,offView.findViewById<View>(R.id.widget_background).visibility)
+            snapshot("off",offConfig)
+            val zero=render(base.copy(customBackgroundColor=android.graphics.Color.BLACK,opacity=0)).apply(context,FrameLayout(context))
+            assertEquals(0,zero.findViewById<android.widget.ImageView>(R.id.widget_background).imageAlpha)
+            // A missing private token falls back to the old theme instead of leaving a stale image.
+            val missing=render(base.copy(backgroundMode=WidgetBackgroundMode.IMAGE,backgroundImageId="0".repeat(32)))
+            assertEquals(R.layout.widget_meal,missing.layoutId)
+        } finally {
+            imageId?.let {g.widgetBackgrounds.discard(listOf(it))};source.delete()
+            g.scope.coroutineContext[Job]!!.cancelAndJoin();g.database.close()
+        }
+    }
     @Test fun rootAndFallbackContentClicksKeepDisplayedDateAndRequestedMeal()=runBlocking {
         val context=ApplicationProvider.getApplicationContext<Application>()
         val clock=Clock.fixed(Instant.parse("2026-10-31T01:00:00Z"),SEOUL)

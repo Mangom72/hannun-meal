@@ -8,6 +8,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.runtime.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kr.han.meal.core.graph
@@ -27,11 +29,21 @@ class WidgetConfigActivity: ComponentActivity() {
             val existing=graph.settings.widgets.first().firstOrNull {it.id==id}
             val kind=widgetProviders.entries.firstOrNull {it.value.name==info.provider.className}?.key ?: WidgetKind.NEXT
             val config=existing ?: WidgetConfig(id,kind,p.school,p.schedule,p.display,p.preset,liveCountdown=p.liveCountdown,opacity=p.opacity,fontScale=p.fontScale,compact=p.compact,color=p.color)
-            setContent {MealTheme(p) {WidgetConfigScreen(config,viewModel(),onCancel={finish()}) {saved ->
+            var saving by mutableStateOf(false)
+            var saveError by mutableStateOf<String?>(null)
+            setContent {MealTheme(p) {WidgetConfigScreen(config,viewModel(),onCancel={if(!saving) finish()},saving=saving,saveError=saveError) {saved ->
+                if(saving) return@WidgetConfigScreen
+                saving=true;saveError=null
                 lifecycleScope.launch {
-                    graph.settings.saveWidget(saved)
-                    graph.renderer.renderAll()
-                    WorkScheduler.request(this@WidgetConfigActivity)
+                    try {graph.settings.saveWidget(saved)}
+                    catch(e:CancellationException) {throw e}
+                    catch(_:Exception) {saving=false;saveError="설정을 저장하지 못했습니다. 다시 시도해 주세요";return@launch}
+                    // Persistence is the commit point. Rendering/cleanup failure must not report an unsaved configuration.
+                    graph.scope.launch {
+                        runCatching {graph.widgetBackgrounds.discard(listOfNotNull(existing?.backgroundImageId).filter {it!=saved.backgroundImageId})}
+                        runCatching {graph.renderer.renderAll()}
+                        runCatching {WorkScheduler.request(this@WidgetConfigActivity)}
+                    }
                     setResult(RESULT_OK,Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID,id));finish()
                 }
             } } }

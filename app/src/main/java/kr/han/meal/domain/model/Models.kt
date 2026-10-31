@@ -62,8 +62,11 @@ fun defaultRules() = listOf(
     val preset: DisplayPreset = DisplayPreset.STANDARD, val rangeMode: RangeMode = RangeMode.CALENDAR,
     val weeklyTypes: Set<MealType> = setOf(MealType.LUNCH), val dateOffset: Int = 0,
     val manualDate: String? = null, val manualType: MealType? = null, val manualUntil: Long? = null,
-    val liveCountdown: Boolean = false, val opacity: Int = 94, val fontScale: Float = 1f, val compact: Boolean = false, val color: Int = 0
+    val liveCountdown: Boolean = false, val opacity: Int = 94, val fontScale: Float = 1f, val compact: Boolean = false, val color: Int = 0,
+    val backgroundEnabled: Boolean = true, val backgroundMode: WidgetBackgroundMode = WidgetBackgroundMode.COLOR,
+    val customBackgroundColor: Int? = null, val backgroundImageId: String? = null
 )
+@Serializable enum class WidgetBackgroundMode { COLOR, IMAGE }
 @Serializable enum class WidgetKind(val label: String) { NEXT("다음 급식"), DAILY("하루 급식"), WEEKLY_SELECTED("주간 선택 급식"), WEEKLY_ALL("주간 전체 급식") }
 @Serializable data class AppSettings(
     val school: School? = null, val mealApiUrl: String = "", val schoolDirectoryUrl: String = "", val schedule: Schedule = Schedule(),

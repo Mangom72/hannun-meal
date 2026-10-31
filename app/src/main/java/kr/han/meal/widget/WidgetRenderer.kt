@@ -32,6 +32,7 @@ import java.util.Locale
 val widgetProviders = mapOf(WidgetKind.NEXT to NextMealWidget::class.java,WidgetKind.DAILY to DailyMealWidget::class.java,WidgetKind.WEEKLY_SELECTED to WeeklySelectedWidget::class.java,WidgetKind.WEEKLY_ALL to WeeklyAllWidget::class.java)
 class WidgetRenderer(private val g: AppGraph) {
     private val mutex=Mutex()
+    private val backgrounds=WidgetBackgroundResolver(g)
     suspend fun renderAll() = withContext(Dispatchers.IO) { mutex.withLock {
         val manager=AppWidgetManager.getInstance(g.app)
         val p=g.settings.settings.first()
@@ -58,9 +59,15 @@ class WidgetRenderer(private val g: AppGraph) {
         scheduleRefresh(refreshes.minOrNull())
     } }
     internal fun render(c:WidgetConfig,school:School?,p:AppSettings,cache:CacheSnapshot,width:Int,height:Int,requestData:Boolean=true): RemoteViews {
-        val rv=RemoteViews(g.app.packageName,R.layout.widget_meal)
-        rv.setImageViewResource(R.id.widget_background,listOf(R.drawable.widget_background,R.drawable.widget_lavender,R.drawable.widget_apricot)[c.color.coerceIn(0,2)])
-        rv.setInt(R.id.widget_background,"setImageAlpha",(c.opacity.coerceIn(25,100)*2.55).toInt())
+        val background=backgrounds.resolve(c)
+        val rv=RemoteViews(g.app.packageName,if(background.foreground!=null) R.layout.widget_meal_custom else R.layout.widget_meal)
+        if(background.bitmap!=null) rv.setImageViewBitmap(R.id.widget_background,background.bitmap)
+        else rv.setImageViewResource(R.id.widget_background,listOf(R.drawable.widget_background,R.drawable.widget_lavender,R.drawable.widget_apricot)[c.color.coerceIn(0,2)])
+        visible(rv,R.id.widget_background,background.enabled)
+        rv.setInt(R.id.widget_background,"setImageAlpha",(c.opacity.coerceIn(0,100)*255/100))
+        background.foreground?.let {color ->
+            listOf(R.id.widget_title,R.id.widget_school,R.id.widget_status,R.id.widget_countdown,R.id.widget_date,R.id.widget_eating,R.id.widget_refresh).forEach {rv.setTextColor(it,color)}
+        }
         rv.removeAllViews(R.id.widget_body)
         val d=c.display
         val schedule=effectiveWidgetSchedule(c,g.clock.instant())
@@ -218,10 +225,10 @@ class WidgetRenderer(private val g: AppGraph) {
             val fair=(left/(shown.size-index)).coerceAtLeast(lineHeight)
             val wanted=textLayout(item.text,bodyWidth,size*density).height
             val allocated=if(fullFits) wanted else minOf(wanted,fair/lineHeight*lineHeight)
-            addFitRow(rv,item,bodyWidth,size*density,allocated)
+            addFitRow(rv,item,bodyWidth,size*density,allocated,background.foreground)
             left-=allocated
         }
-        if(hidden>0) addFitRow(rv,FitRow("${hidden}끼 더 보기",open),bodyWidth,12f*density,lineHeight)
+        if(hidden>0) addFitRow(rv,FitRow("${hidden}끼 더 보기",open),bodyWidth,12f*density,lineHeight,background.foreground)
         rv.setContentDescription(R.id.widget_root,listOfNotNull(school?.name,title).joinToString(" · "))
         rv.setOnClickPendingIntent(R.id.widget_root,open)
         rv.setOnClickPendingIntent(R.id.widget_title,open)
@@ -236,8 +243,9 @@ class WidgetRenderer(private val g: AppGraph) {
         if(Build.VERSION.SDK_INT>=28) builder.setUseLineSpacingFromFallbacks(true)
         return builder.build()
     }
-    private fun addFitRow(rv:RemoteViews,item:FitRow,width:Int,size:Float,height:Int) {
+    private fun addFitRow(rv:RemoteViews,item:FitRow,width:Int,size:Float,height:Int,foreground:Int?) {
         val row=RemoteViews(g.app.packageName,R.layout.widget_row)
+        foreground?.let {row.setTextColor(R.id.row_menu,it);row.setTextColor(R.id.row_label,it)}
         val layout=textLayout(item.text,width,size)
         val lines=(0 until layout.lineCount).count {layout.getLineBottom(it)<=height}.coerceAtLeast(1)
         var text=item.text

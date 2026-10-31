@@ -16,7 +16,12 @@ open class MealWidgetProvider: AppWidgetProvider() {
     override fun onUpdate(context:Context,manager:AppWidgetManager,ids:IntArray) { local(context) }
     override fun onAppWidgetOptionsChanged(context:Context,manager:AppWidgetManager,id:Int,options:Bundle) {local(context)}
     override fun onDeleted(context:Context,ids:IntArray) {
-        val pending=goAsync();context.graph.scope.launch {try {ids.forEach {context.graph.settings.removeWidget(it)};context.graph.renderer.renderAll()} finally {pending.finish()} }
+        val pending=goAsync();context.graph.scope.launch {try {
+            val images=context.graph.settings.widgets.first().filter {it.id in ids}.mapNotNull {it.backgroundImageId}
+            ids.forEach {context.graph.settings.removeWidget(it)}
+            context.graph.widgetBackgrounds.discard(images)
+            context.graph.renderer.renderAll()
+        } finally {pending.finish()} }
     }
     private fun local(context:Context) {val pending=goAsync();context.graph.scope.launch {try {context.graph.renderer.renderAll()} finally {pending.finish()} } }
 }

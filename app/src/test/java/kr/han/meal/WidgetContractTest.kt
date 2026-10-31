@@ -78,6 +78,60 @@ class WidgetContractTest {
         assertFalse("android.permission.SCHEDULE_EXACT_ALARM" in permissions)
         assertFalse("android.permission.USE_EXACT_ALARM" in permissions)
         assertFalse("android.permission.FOREGROUND_SERVICE" in permissions)
+        assertFalse("android.permission.READ_EXTERNAL_STORAGE" in permissions)
+        assertFalse("android.permission.READ_MEDIA_IMAGES" in permissions)
+        assertFalse("android.permission.MANAGE_EXTERNAL_STORAGE" in permissions)
+    }
+
+    @Test fun pickerUsesOnlyTheLocalSystemDocumentFlow() {
+        val intent=kr.han.meal.ui.widgetImagePickerIntent()
+        assertEquals(android.content.Intent.ACTION_OPEN_DOCUMENT,intent.action)
+        assertTrue(intent.hasCategory(android.content.Intent.CATEGORY_OPENABLE))
+        assertEquals("image/*",intent.type)
+        assertTrue(intent.getBooleanExtra(android.content.Intent.EXTRA_LOCAL_ONLY,false))
+        assertNull(intent.component)
+    }
+
+    @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    @Config(sdk=[33],application=Application::class)
+    @Test fun customWrapperKeepsIdsAndTransparentRoundedImageClipping() {
+        val context=ApplicationProvider.getApplicationContext<Application>()
+        assertNotEquals(R.layout.widget_meal,R.layout.widget_meal_custom)
+        listOf(R.layout.widget_meal,R.layout.widget_meal_custom).forEach {layout->
+            val view=RemoteViews(context.packageName,layout).apply(context,LinearLayout(context))
+            val image=view.findViewById<android.widget.ImageView>(R.id.widget_background)
+            assertTrue(image.clipToOutline)
+            image.background.setBounds(0,0,320,240)
+            val outline=android.graphics.Outline()
+            image.background.getOutline(outline)
+            assertTrue(outline.canClip())
+            assertEquals(24f*context.resources.displayMetrics.density,outline.radius,.01f)
+            assertEquals(0f,outline.alpha,0f)
+            assertEquals(android.widget.ImageView.ScaleType.CENTER_CROP,image.scaleType)
+            assertNotNull(view.findViewById<View>(R.id.widget_root))
+            assertNotNull(view.findViewById<View>(R.id.widget_refresh))
+            assertNotNull(view.findViewById<View>(R.id.widget_body))
+        }
+        assertTrue(context.resources.getInteger(R.integer.widget_image_scrim_alpha)>=160)
+    }
+
+    @Test fun imageClipXmlContractIsPresentEvenOnOlderFrameworks() {
+        // View only reads android:clipToOutline from XML on newer Android versions.
+        // This resource contract does not claim hardware clipping works on API 26–30.
+        val context=ApplicationProvider.getApplicationContext<Application>()
+        val ns="http://schemas.android.com/apk/res/android"
+        context.resources.getXml(R.layout.widget_meal).use {xml->
+            var found=false
+            while(xml.eventType!=org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+                if(xml.eventType==org.xmlpull.v1.XmlPullParser.START_TAG && xml.name=="ImageView") {
+                    assertTrue(xml.getAttributeBooleanValue(ns,"clipToOutline",false))
+                    assertEquals(R.drawable.widget_background_clip,xml.getAttributeResourceValue(ns,"background",0))
+                    found=true
+                }
+                xml.next()
+            }
+            assertTrue(found)
+        }
     }
 
     @Test fun updateFileProviderExposesOnlyPrivateUpdateCache() {

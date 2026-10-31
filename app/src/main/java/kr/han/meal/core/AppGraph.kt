@@ -28,6 +28,7 @@ class AppGraph(val app: Application, val clock: Clock = Clock.system(SEOUL), sta
     val scope = CoroutineScope(SupervisorJob()+Dispatchers.Default)
     val online = connectivity(app).stateIn(scope,SharingStarted.Eagerly,app.isOnline())
     val settings = SettingsStore(app)
+    val widgetBackgrounds = WidgetBackgroundStore(app,settings)
     val preferences = settings.settings.stateIn(scope,SharingStarted.Eagerly,AppSettings())
     val database = Room.databaseBuilder(app,MealDatabase::class.java,"meals.db").addMigrations(MealDatabase.MIGRATION_1_2).build()
     private val json = Json { ignoreUnknownKeys=true; isLenient=false }
