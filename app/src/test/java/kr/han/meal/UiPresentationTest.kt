@@ -8,8 +8,20 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.time.LocalDate
 import java.time.Instant
+import java.time.Duration
 
 class UiPresentationTest {
+    @Test fun countdownUsesNaturalDaysWithoutChangingMealTimeCalculations() {
+        assertEquals("1분 미만",mealCountdownLabel(Duration.ZERO))
+        assertEquals("1분 미만",mealCountdownLabel(Duration.ofSeconds(59)))
+        assertEquals("1분",mealCountdownLabel(Duration.ofMinutes(1)))
+        assertEquals("59분",mealCountdownLabel(Duration.ofMinutes(59)))
+        assertEquals("1시간 0분",mealCountdownLabel(Duration.ofHours(1)))
+        assertEquals("23시간 59분",mealCountdownLabel(Duration.ofMinutes(1439)))
+        assertEquals("1일 0시간",mealCountdownLabel(Duration.ofDays(1)))
+        assertEquals("1일 17시간",mealCountdownLabel(Duration.ofMinutes(2482)))
+        assertEquals("3일 2시간",mealCountdownLabel(Duration.ofHours(74)))
+    }
     @Test fun focusedDateContextDoesNotCallTomorrowsAutomaticMealToday() {
         val today=LocalDate.parse("2026-12-31")
         assertEquals("오늘",focusedDateContext(today,today))
@@ -93,7 +105,9 @@ class UiPresentationTest {
                 "preview text" to (c.onSurface to c.surfaceContainerLow),
                 "preview supporting text" to (c.onSurfaceVariant to c.surfaceContainerLow),
                 "preview label" to (c.primary to c.surfaceContainerLow),
-                "selected date" to (c.onPrimaryContainer to c.primaryContainer)
+                "selected date" to (c.onPrimaryContainer to c.primaryContainer),
+                "selected meal filter" to (c.onSecondaryContainer to c.secondaryContainer),
+                "current school label" to (c.primary to c.secondaryContainer)
             ).forEach {(role,pair)->
                 val ratio=contrastRatio(pair.first,pair.second)
                 assertTrue("$role dark=$dark preset=$preset ratio=$ratio",ratio>=4.5f)

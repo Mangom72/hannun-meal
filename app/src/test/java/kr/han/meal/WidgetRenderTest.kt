@@ -37,16 +37,22 @@ class WidgetRenderTest {
         var imageId:String?=null
         try {
             val token=g.widgetBackgrounds.import(android.net.Uri.fromFile(source));imageId=token
-            val p=AppSettings()
-            val base=WidgetConfig(650,opacity=100)
-            suspend fun render(config:WidgetConfig)=withContext(Dispatchers.IO) {g.renderer.render(config,null,p,CacheSnapshot(),320,240,requestData=false)}
+            val school=School("B10","7010057","학교")
+            val p=AppSettings(school=school)
+            val date=LocalDate.now(g.clock)
+            val meals=MealType.entries.map {Meal(school.id,date,it,listOf(Dish("${it.label} 고유 메뉴")),"원문",syncedAt=g.clock.instant())}
+            val cache=CacheSnapshot(meals)
+            val base=WidgetConfig(650,WidgetKind.DAILY,school,opacity=100)
+            suspend fun render(config:WidgetConfig)=withContext(Dispatchers.IO) {g.renderer.render(config,school,p,cache,320,240,requestData=false)}
             val dark=render(base.copy(customBackgroundColor=android.graphics.Color.BLACK))
             assertEquals(R.layout.widget_meal_custom,dark.layoutId)
             val host=dark.apply(context,FrameLayout(context))
             assertEquals(android.graphics.Color.WHITE,host.findViewById<TextView>(R.id.widget_title).currentTextColor)
+            assertEquals(android.graphics.Color.WHITE,host.findViewById<TextView>(R.id.row_label).currentTextColor)
             val light=render(base.copy(customBackgroundColor=android.graphics.Color.WHITE))
             light.reapply(context,host)
             assertEquals(android.graphics.Color.BLACK,host.findViewById<TextView>(R.id.widget_title).currentTextColor)
+            assertEquals(android.graphics.Color.BLACK,host.findViewById<TextView>(R.id.row_label).currentTextColor)
             val image=render(base.copy(backgroundMode=WidgetBackgroundMode.IMAGE,backgroundImageId=token,opacity=61))
             image.reapply(context,host)
             assertEquals(android.graphics.Color.WHITE,host.findViewById<TextView>(R.id.widget_title).currentTextColor)
@@ -68,6 +74,7 @@ class WidgetRenderTest {
                 assertNotEquals("Layout identity makes launcher reinflate custom text on return to a preset",image.layoutId,old.layoutId)
                 val oldView=old.apply(context,FrameLayout(context))
                 assertEquals(context.getColor(R.color.widget_title),oldView.findViewById<TextView>(R.id.widget_title).currentTextColor)
+                assertEquals(context.getColor(R.color.widget_accent),oldView.findViewById<TextView>(R.id.row_label).currentTextColor)
                 snapshot("legacy-$color",base.copy(color=color))
             }
             val offConfig=base.copy(backgroundEnabled=false,backgroundMode=WidgetBackgroundMode.IMAGE,backgroundImageId=token,customBackgroundColor=android.graphics.Color.BLACK)

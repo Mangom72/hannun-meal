@@ -94,10 +94,11 @@ import kotlinx.coroutines.launch
                 Row(Modifier.padding(horizontal=4.dp,vertical=12.dp),horizontalArrangement=Arrangement.spacedBy(12.dp),verticalAlignment=Alignment.CenterVertically) {
                     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)) {
                         Text(school.name,style=MaterialTheme.typography.titleMedium)
+                        if(chosen) Text("현재 학교",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
                         Text(listOf(school.region,school.type).filter {it.isNotBlank()}.joinToString(" · "),style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
                         Text(school.address,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    if(chosen) Icon(Icons.Outlined.Check,"선택한 학교",tint=MaterialTheme.colorScheme.primary)
+                    if(chosen) Icon(Icons.Outlined.Check,null,tint=MaterialTheme.colorScheme.primary)
                 }
             }
             HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
@@ -106,9 +107,9 @@ import kotlinx.coroutines.launch
     pending?.let {school->AlertDialog(onDismissRequest={pending=null},title={Text(school.name)},text={Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {Text(school.address);Text("이 학교의 급식을 표시합니다. 위젯의 개별 학교 설정은 유지됩니다.")}},confirmButton={TextButton(onClick={vm.choose(school);pending=null;onSelected()}) {Text("이 학교 선택")}},dismissButton={TextButton(onClick={pending=null}) {Text("취소")}})}
 }
 fun timeText(minute:Int)=if(minute==1440) "24:00" else "%02d:%02d".format(minute/60,minute%60)
-@Composable fun TimeButton(label:String,minute:Int,allowEnd:Boolean=false,onChange:(Int)->Unit) {
+@Composable fun TimeButton(label:String,minute:Int,allowEnd:Boolean=false,accessibilityLabel:String=label,onChange:(Int)->Unit) {
     val context=LocalContext.current
-    OutlinedButton(onClick={TimePickerDialog(context,{_,hour,min->onChange(if(allowEnd && hour==0 && min==0) 1440 else hour*60+min)},if(minute==1440) 0 else minute/60,minute%60,true).show()},modifier=Modifier.heightIn(min=48.dp)) {Text("$label ${timeText(minute)}")}
+    OutlinedButton(onClick={TimePickerDialog(context,{_,hour,min->onChange(if(allowEnd && hour==0 && min==0) 1440 else hour*60+min)},if(minute==1440) 0 else minute/60,minute%60,true).show()},modifier=Modifier.heightIn(min=48.dp).semantics {contentDescription="$accessibilityLabel ${timeText(minute)}, 시간 변경"}) {Text("$label ${timeText(minute)}")}
 }
 @Composable fun ScheduleScreen(initial:Schedule,vm:MealViewModel,onSave:(Schedule)->Unit) {
     var draft by remember(initial) {mutableStateOf(initial)}
@@ -123,17 +124,17 @@ fun timeText(minute:Int)=if(minute==1440) "24:00" else "%02d:%02d".format(minute
             val selection=kr.han.meal.domain.selection.MealSelector(vm.graph.clock).select(draft) {date,type->school?.let {cache.availability(it.id,date,type)} ?: Availability.Unknown}
             Surface(color=MaterialTheme.colorScheme.surfaceContainerLow,shape=RoundedCornerShape(12.dp)) {
                 Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Text("현재 설정 미리보기",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
+                    Text(if(draft==initial) "저장된 설정의 선택 결과" else "변경 중인 설정 · 저장 전",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
                     Text(schedulePreviewLabel(selection),style=MaterialTheme.typography.titleMedium)
                     if(error==null) Text("다음 일정 확인 ${kr.han.meal.domain.scheduling.MealTiming.nextRefresh(draft,vm.graph.clock).atZone(SEOUL).format(java.time.format.DateTimeFormatter.ofPattern("M/d HH:mm"))}",style=MaterialTheme.typography.bodyMedium)
-                    Text("저장된 급식으로 미리 봅니다. 변경 사항은 아래에서 저장해 주세요.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("저장된 급식으로 계산한 결과입니다. 변경한 설정은 저장 후 적용됩니다.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             ScheduleControls(draft) {draft=it}
             error?.let {Notice(it)}
         }
         Surface(color=MaterialTheme.colorScheme.surface,tonalElevation=2.dp) {
-            Button(onClick={onSave(draft)},enabled=error==null,modifier=Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=10.dp).heightIn(min=48.dp)) {Text("일정 저장")}
+            Button(onClick={onSave(draft)},enabled=error==null,modifier=Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=10.dp).heightIn(min=48.dp)) {Text("자동 전환 설정 저장")}
         }
     }
 }
@@ -174,29 +175,32 @@ fun timeText(minute:Int)=if(minute==1440) "24:00" else "%02d:%02d".format(minute
     Text("급식 전환 시간",style=MaterialTheme.typography.titleMedium)
     Text("식사 시간과 별도로 급식을 바꿀 시간을 정합니다. 24:00은 다음 날 00:00이며, 시작이 끝보다 늦으면 자정을 지나는 구간입니다.",style=MaterialTheme.typography.bodySmall)
     draft.rules.forEachIndexed { index,rule ->
+        val interval="${timeText(rule.start)}–${timeText(rule.end)} 구간"
         OutlinedCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 fun replace(r:TimeRule) {onChange(draft.copy(rules=draft.rules.toMutableList().also {it[index]=r}))}
-                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {TimeButton("시작",rule.start) {replace(rule.copy(start=it))};TimeButton("끝",rule.end,true) {replace(rule.copy(end=it))} }
+                Text("규칙 ${index+1} · $interval",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary)
+                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {TimeButton("시작",rule.start,accessibilityLabel="$interval 시작") {replace(rule.copy(start=it))};TimeButton("끝",rule.end,true,accessibilityLabel="$interval 끝") {replace(rule.copy(end=it))} }
                 ToggleRow("다음 가능한 식사",rule.action.nextAvailable,{replace(rule.copy(action=rule.action.copy(nextAvailable=it)))})
                 if(!rule.action.nextAvailable) {
                     TypeChoice(rule.action.type) {replace(rule.copy(action=rule.action.copy(type=it)))}
+                    Text("표시할 급식 날짜",style=MaterialTheme.typography.bodyMedium)
                     Row(verticalAlignment=Alignment.CenterVertically) {
-                        OutlinedButton(onClick={replace(rule.copy(action=rule.action.copy(dayOffset=(rule.action.dayOffset-1).coerceAtLeast(0))))},enabled=rule.action.dayOffset>0) {Text("−")}
-                        Text(if(rule.action.dayOffset==0) "  오늘  " else "  ${rule.action.dayOffset}일 후  ")
-                        OutlinedButton(onClick={replace(rule.copy(action=rule.action.copy(dayOffset=(rule.action.dayOffset+1).coerceAtMost(20))))},enabled=rule.action.dayOffset<20) {Text("+")}
+                        OutlinedButton(onClick={replace(rule.copy(action=rule.action.copy(dayOffset=(rule.action.dayOffset-1).coerceAtLeast(0))))},enabled=rule.action.dayOffset>0,modifier=Modifier.heightIn(min=48.dp).semantics {contentDescription="$interval 표시 날짜 하루 앞당기기"}) {Text("−")}
+                        Text(if(rule.action.dayOffset==0) "  당일  " else "  ${rule.action.dayOffset}일 후  ")
+                        OutlinedButton(onClick={replace(rule.copy(action=rule.action.copy(dayOffset=(rule.action.dayOffset+1).coerceAtMost(20))))},enabled=rule.action.dayOffset<20,modifier=Modifier.heightIn(min=48.dp).semantics {contentDescription="$interval 표시 날짜 하루 늦추기"}) {Text("+")}
                     }
                 }
-                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick={
                         val length=if(rule.end>rule.start) rule.end-rule.start else 1440-rule.start+rule.end
                         val mid=(rule.start+length/2)%1440
                         val rules=draft.rules.toMutableList();rules[index]=rule.copy(end=mid);rules.add(index+1,rule.copy(start=mid));onChange(draft.copy(rules=rules))
-                    },enabled=draft.rules.size<12 && (rule.end-rule.start+1440)%1440 !=1) {Text("구간 나누기")}
+                    },enabled=draft.rules.size<12 && (rule.end-rule.start+1440)%1440 !=1,modifier=Modifier.heightIn(min=48.dp).semantics {contentDescription="$interval 둘로 나누기"}) {Text("구간 나누기")}
                     TextButton(onClick={
                         val rules=draft.rules.toMutableList();val prev=if(index==0) rules.lastIndex else index-1
                         rules[prev]=rules[prev].copy(end=rule.end);rules.removeAt(index);onChange(draft.copy(rules=rules))
-                    },enabled=draft.rules.size>1) {Text("앞 구간에 합치기")}
+                    },enabled=draft.rules.size>1,modifier=Modifier.heightIn(min=48.dp).semantics {contentDescription="$interval 앞 구간에 합치기"}) {Text("앞 구간에 합치기")}
                 }
             }
         }

@@ -41,9 +41,8 @@ private val allergyNames=listOf("난류","우유","메밀","땅콩","대두","�
 internal fun allergyLabel(numbers:List<Int>)=numbers.distinct().filter {it in 1..19}.joinToString(" · ") {"$it ${allergyNames[it-1]}"}
 
 @Composable fun SchoolToolbarTitle(school:School,fontScale:Float,caption:String="한눈급식",onChange:()->Unit) {
-    val large=LocalDensity.current.fontScale*fontScale>1.3f
     Column(Modifier.fillMaxWidth().heightIn(min=48.dp).clickable(role=Role.Button,onClickLabel="학교 변경",onClick=onChange),verticalArrangement=Arrangement.Center) {
-        if(!large) Text(school.region.ifBlank {caption},maxLines=1,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        // The full untruncated name remains in text semantics and in the school chooser.
         Text(school.name,style=MaterialTheme.typography.titleMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
     }
 }
@@ -107,7 +106,18 @@ internal fun allergyLabel(numbers:List<Int>)=numbers.distinct().filter {it in 1.
                 if(status is Availability.Present) {
                     item {SelectionContainer {MenuLines(status.meal,showAllergens=true,large=true)}}
                     item {Text("알레르기 번호가 없어도 알레르기 유발 식품이 없다는 뜻은 아닙니다. 알레르기가 있다면 먹기 전에 학교에 확인해 주세요.",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
-                    item {DisclosureSection("영양 정보") {SelectionContainer {Text(status.meal.nutrition.ifBlank {"등록된 영양 정보가 없습니다"},style=MaterialTheme.typography.bodyMedium)}}}
+                    item {DisclosureSection("영양 정보") {
+                        if(status.meal.nutrition.isBlank()) Text("등록된 영양 정보가 없습니다",style=MaterialTheme.typography.bodyMedium)
+                        else {
+                            nutritionSections(status.meal.nutrition).forEach {section->
+                                Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                                    Text(section.title,style=MaterialTheme.typography.titleSmall,color=MaterialTheme.colorScheme.primary,modifier=Modifier.semantics {heading()})
+                                    SelectionContainer {Column(verticalArrangement=Arrangement.spacedBy(6.dp)) {section.entries.forEach {Text(it,style=MaterialTheme.typography.bodyLarge)}}}
+                                }
+                            }
+                            DisclosureSection("영양 정보 원문") {SelectionContainer {Text(status.meal.nutrition,style=MaterialTheme.typography.bodyMedium)}}
+                        }
+                    }}
                     item {DisclosureSection("원산지") {SelectionContainer {Text(status.meal.origin.ifBlank {"등록된 원산지 정보가 없습니다"},style=MaterialTheme.typography.bodyMedium)}}}
                     item {DisclosureSection("알레르기 번호 안내") {Text(allergyLabel((1..19).toList()),style=MaterialTheme.typography.bodyMedium)}}
                     item {DisclosureSection("NEIS 원문") {SelectionContainer {Text(status.meal.raw,style=MaterialTheme.typography.bodySmall)}}}

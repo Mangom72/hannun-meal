@@ -10,6 +10,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import java.time.LocalDate
+import java.time.Duration
 import kr.han.meal.domain.model.*
 
 internal fun focusedDateContext(date:LocalDate,today:LocalDate)=when(date) {
@@ -17,6 +18,19 @@ internal fun focusedDateContext(date:LocalDate,today:LocalDate)=when(date) {
     today.plusDays(1)->"내일"
     else->if(date.isBefore(today)) "지난 날짜" else "이후 날짜"
 }
+/** Presentation only: keep the engine's exact meal instant and round neither dates nor hours. */
+internal fun mealCountdownLabel(remaining:Duration):String {
+    val minutes=remaining.toMinutes().coerceAtLeast(0)
+    return when {
+        minutes>=1440->"${minutes/1440}일 ${minutes%1440/60}시간"
+        minutes>=60->"${minutes/60}시간 ${minutes%60}분"
+        minutes>0->"${minutes}분"
+        else->"1분 미만"
+    }
+}
+internal fun weeklyRangeLabel(start:LocalDate,end:LocalDate):String =
+    if(start.year==end.year) "${start.year}년 ${start.monthValue}/${start.dayOfMonth} – ${end.monthValue}/${end.dayOfMonth}"
+    else "${start.year}/${start.monthValue}/${start.dayOfMonth} – ${end.year}/${end.monthValue}/${end.dayOfMonth}"
 internal fun effectiveSelectionMode(schedule:Schedule,nowMillis:Long)=
     if(schedule.mode==SelectionMode.MANUAL && schedule.returnAutomatically && schedule.manualUntil?.let {nowMillis>=it}==true) SelectionMode.AUTO else schedule.mode
 

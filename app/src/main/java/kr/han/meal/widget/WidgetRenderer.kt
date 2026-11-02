@@ -139,7 +139,10 @@ class WidgetRenderer(private val g: AppGraph) {
             WidgetKind.DAILY -> {
                 val types=MealType.entries.filter {it in schedule.enabledTypes}
                 if(types.isEmpty()) row("설정 확인","표시할 식사 종류를 선택해 주세요")
-                types.forEach {type->row((if(selected?.date==anchor && selected.type==type) "● " else "")+type.label,summary(cache,school.id,anchor,type,c),detailIntent(c,anchor,type,school.id),summary(cache,school.id,anchor,type,c,true))}
+                types.forEach {type->
+                    rows += FitRow(summary(cache,school.id,anchor,type,c),detailIntent(c,anchor,type,school.id),summary(cache,school.id,anchor,type,c,true),
+                        (if(selected?.date==anchor && selected.type==type) "● " else "")+type.label)
+                }
                 if(requestData) requestUnknown(cache,school,p,anchor,anchor)
             }
             WidgetKind.WEEKLY_SELECTED,WidgetKind.WEEKLY_ALL -> {
@@ -168,9 +171,22 @@ class WidgetRenderer(private val g: AppGraph) {
         val preferred=(if(c.kind==WidgetKind.NEXT) 15f else 13f)*c.fontScale.coerceIn(.8f,1.4f)*g.app.resources.configuration.fontScale
         var size=preferred.coerceAtLeast(12f)
         val available=px((height-padding*2-48).coerceAtLeast(1).toFloat())
-        fun total(items:List<FitRow>,font:Float)=items.sumOf {textLayout(it.text,bodyWidth,font*density).height}
+        val touchHeight=kotlin.math.ceil(48f*density).toInt()
+        val touchPaddingMemo=mutableMapOf<Pair<FitRow,Float>,Int>()
+        fun candidatePadding(item:FitRow,font:Float)=touchPaddingMemo.getOrPut(item to font) {
+            dailyTouchPadding(item,bodyWidth,font*density,touchHeight)
+        }
+        var padDailyRows=false
+        fun paddingFor(item:FitRow,font:Float)=if(padDailyRows) candidatePadding(item,font) else 0
+        fun fittedHeight(item:FitRow,font:Float)=rowHeight(item,bodyWidth,font*density)+paddingFor(item,font)
+        fun total(items:List<FitRow>,font:Float)=items.sumOf {fittedHeight(it,font)}
         while(size>12f && total(rows,size)>available) size=(size-.5f).coerceAtLeast(12f)
         val fullFits=total(rows,size)<=available
+        // Expand daily tap areas only after complete menus fit. Physically compact
+        // widgets keep content-first rows rather than hiding meals to add touch padding.
+        if(fullFits && rows.any {it.label!=null} && rows.sumOf {
+                rowHeight(it,bodyWidth,size*density)+candidatePadding(it,size)
+            }<=available) padDailyRows=true
         // Optional school/sync/time information only receives space left by complete menus.
         var budget=available
         visible(rv,R.id.widget_school,false)
@@ -217,49 +233,91 @@ class WidgetRenderer(private val g: AppGraph) {
         rv.setTextViewTextSize(R.id.widget_title,android.util.TypedValue.COMPLEX_UNIT_PX,(if(width<200) 12f else 14f)*density)
         visible(rv,R.id.widget_date,false);visible(rv,R.id.widget_eating,false)
         val lineHeight=textLayout("급식",bodyWidth,size*density).height
-        val capacity=(budget/lineHeight).coerceAtLeast(1)
-        val hidden=if(rows.size>capacity) rows.size-(capacity-1).coerceAtLeast(0) else 0
-        val shown=if(hidden>0) rows.take((capacity-1).coerceAtLeast(0)) else rows.toList()
-        var left=budget-(if(hidden>0) lineHeight else 0)
+        // Daily sections need both a bold label and at least one honest content line.
+        // Reserve the measured overall hint before choosing how many sections can fit.
+        val daily=rows.any {it.label!=null}
+        val hintHeight=textLayout("${rows.size}끼 더 보기",bodyWidth,12f*density).height
+        val minimums=rows.map {fittedHeight(it.copy(text="전체 보기"),size)}
+        val capacity=if(daily) {
+            if(minimums.sum()<=budget) rows.size
+            else (0..rows.size).last {count->minimums.take(count).sum()+hintHeight<=budget}
+        } else (budget/lineHeight).coerceAtLeast(1)
+        val hidden=if(daily) rows.size-capacity else if(rows.size>capacity) rows.size-(capacity-1).coerceAtLeast(0) else 0
+        val shown=if(hidden>0) rows.take(if(daily) capacity else (capacity-1).coerceAtLeast(0)) else rows.toList()
+        var left=budget-(if(hidden>0) if(daily) hintHeight else lineHeight else 0)
         shown.forEachIndexed {index,item->
-            val fair=(left/(shown.size-index)).coerceAtLeast(lineHeight)
-            val wanted=textLayout(item.text,bodyWidth,size*density).height
-            val allocated=if(fullFits) wanted else minOf(wanted,fair/lineHeight*lineHeight)
-            addFitRow(rv,item,bodyWidth,size*density,allocated,background.foreground)
+            val fair=(left/(shown.size-index)).coerceAtLeast(if(daily) minimums[index] else lineHeight)
+            val wanted=fittedHeight(item,size)
+            val allocated=if(fullFits) wanted else if(daily) minOf(wanted,fair) else minOf(wanted,fair/lineHeight*lineHeight)
+            addFitRow(rv,item,bodyWidth,size*density,allocated,background.foreground,paddingFor(item,size))
             left-=allocated
         }
-        if(hidden>0) addFitRow(rv,FitRow("${hidden}끼 더 보기",open),bodyWidth,12f*density,lineHeight,background.foreground)
+        if(hidden>0) addFitRow(rv,FitRow("${hidden}끼 더 보기",open),bodyWidth,12f*density,if(daily) hintHeight else lineHeight,background.foreground)
         rv.setContentDescription(R.id.widget_root,listOfNotNull(school?.name,title).joinToString(" · "))
         rv.setOnClickPendingIntent(R.id.widget_root,open)
         rv.setOnClickPendingIntent(R.id.widget_title,open)
         rv.setOnClickPendingIntent(R.id.widget_refresh,actionIntent(c.id,"refresh"))
         return rv
     }
-    private data class FitRow(val text:String,val pending:PendingIntent,val metadata:String?=null)
-    private fun textLayout(text:String,width:Int,size:Float):android.text.StaticLayout {
-        val paint=android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {textSize=size}
+    private data class FitRow(val text:String,val pending:PendingIntent,val metadata:String?=null,val label:String?=null)
+    private fun labelOverhead(item:FitRow,width:Int,size:Float):Int = item.label?.let {
+        val density=g.app.resources.displayMetrics.density
+        textLayout(it,width,size,bold=true).height+(2*density).toInt()+(4*density).toInt()
+    } ?: 0
+    private fun rowHeight(item:FitRow,width:Int,size:Float)=labelOverhead(item,width,size)+textLayout(item.text,width,size).height
+    private fun textLayout(text:String,width:Int,size:Float,bold:Boolean=false):android.text.StaticLayout {
+        val paint=android.text.TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            textSize=size
+            if(bold) typeface=android.graphics.Typeface.DEFAULT_BOLD
+        }
         val builder=android.text.StaticLayout.Builder.obtain(text,0,text.length,paint,width.coerceAtLeast(1))
             .setIncludePad(false).setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE)
         if(Build.VERSION.SDK_INT>=28) builder.setUseLineSpacingFromFallbacks(true)
         return builder.build()
     }
-    private fun addFitRow(rv:RemoteViews,item:FitRow,width:Int,size:Float,height:Int,foreground:Int?) {
+    private fun dailyTouchPadding(item:FitRow,width:Int,size:Float,touchFloor:Int):Int {
+        if(item.label==null || touchFloor<=rowHeight(item,width,size)) return 0
+        val density=g.app.resources.displayMetrics.density
+        // Measure once per candidate; the conservative StaticLayout height PLUS
+        // this exact padding is reserved in every total, including metadata trials.
+        val measured=android.view.LayoutInflater.from(g.app).inflate(R.layout.widget_row,android.widget.FrameLayout(g.app),false)
+        measured.findViewById<android.widget.TextView>(R.id.row_label).apply {
+            text=item.label;setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,size)
+            setPadding(0,0,0,(2*density).toInt())
+        }
+        measured.findViewById<android.widget.TextView>(R.id.row_menu).apply {
+            text=item.text;setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX,size)
+            maxLines=textLayout(item.text,width,size).lineCount
+        }
+        measured.setPadding(0,0,0,(4*density).toInt())
+        measured.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED))
+        return (touchFloor-measured.measuredHeight).coerceAtLeast(0)
+    }
+    private fun addFitRow(rv:RemoteViews,item:FitRow,width:Int,size:Float,height:Int,foreground:Int?,touchPadding:Int=0) {
         val row=RemoteViews(g.app.packageName,R.layout.widget_row)
         foreground?.let {row.setTextColor(R.id.row_menu,it);row.setTextColor(R.id.row_label,it)}
+        val density=g.app.resources.displayMetrics.density
+        val menuHeight=height-labelOverhead(item,width,size)-touchPadding
         val layout=textLayout(item.text,width,size)
-        val lines=(0 until layout.lineCount).count {layout.getLineBottom(it)<=height}.coerceAtLeast(1)
+        val lines=(0 until layout.lineCount).count {layout.getLineBottom(it)<=menuHeight}.coerceAtLeast(1)
         var text=item.text
-        if(layout.height>height) {
-            val suffix="… 전체 보기"
+        if(layout.height>menuHeight) {
+            val suffix=if(item.label!=null && textLayout("… 전체 보기",width,size).height>menuHeight) "전체 보기" else "… 전체 보기"
             var end=layout.getLineEnd((lines-1).coerceAtMost(layout.lineCount-1)).coerceAtMost(text.length)
-            while(end>0 && textLayout(text.take(end).trimEnd()+suffix,width,size).height>height) end--
+            while(end>0 && textLayout(text.take(end).trimEnd()+suffix,width,size).height>menuHeight) end--
             text=text.take(end).trimEnd()+suffix
         }
-        visible(row,R.id.row_label,false)
+        visible(row,R.id.row_label,item.label!=null)
+        item.label?.let {
+            row.setTextViewText(R.id.row_label,it)
+            row.setTextViewTextSize(R.id.row_label,android.util.TypedValue.COMPLEX_UNIT_PX,size)
+            row.setViewPadding(R.id.row_label,0,0,0,(2*density).toInt())
+            row.setViewPadding(R.id.row_root,0,0,0,(4*density).toInt()+touchPadding)
+        }
         row.setTextViewText(R.id.row_menu,text)
         row.setTextViewTextSize(R.id.row_menu,android.util.TypedValue.COMPLEX_UNIT_PX,size)
         row.setInt(R.id.row_menu,"setMaxLines",lines)
-        row.setContentDescription(R.id.row_root,item.text)
+        row.setContentDescription(R.id.row_root,listOfNotNull(item.label,item.text).joinToString("  "))
         row.setOnClickPendingIntent(R.id.row_root,item.pending)
         rv.addView(R.id.widget_body,row)
     }

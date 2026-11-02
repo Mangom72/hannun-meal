@@ -48,6 +48,9 @@ class WidgetContractTest {
         rv.setChronometerCountDown(R.id.widget_countdown,true)
         val view=rv.apply(context,LinearLayout(context))
         assertEquals(1,view.findViewById<LinearLayout>(R.id.widget_body).childCount)
+        listOf(R.id.row_label,R.id.row_menu).forEach {id->
+            assertEquals("Shared row children must not duplicate the semantic root announcement",View.IMPORTANT_FOR_ACCESSIBILITY_NO,view.findViewById<View>(id).importantForAccessibility)
+        }
         assertTrue(view.findViewById<Chronometer>(R.id.widget_countdown).isCountDown)
         listOf("widget_previous","widget_next","widget_auto","widget_settings").forEach {
             assertEquals("Removed controls must not return",0,context.resources.getIdentifier(it,"id",context.packageName))

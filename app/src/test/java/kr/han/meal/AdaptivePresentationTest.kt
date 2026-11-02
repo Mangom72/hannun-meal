@@ -8,6 +8,11 @@ import org.junit.Test
 import java.time.*
 
 class AdaptivePresentationTest {
+    @Test fun weeklyRangeShowsBothMonthsAndBothYearsAtBoundaries() {
+        assertEquals("2026년 10/26 – 11/1",weeklyRangeLabel(LocalDate.parse("2026-10-26"),LocalDate.parse("2026-11-01")))
+        assertEquals("2026/12/28 – 2027/1/3",weeklyRangeLabel(LocalDate.parse("2026-12-28"),LocalDate.parse("2027-01-03")))
+        assertEquals("2026년 11/2 – 11/6",weeklyRangeLabel(LocalDate.parse("2026-11-02"),LocalDate.parse("2026-11-06")))
+    }
     @Test fun scheduleExplanationsDistinguishTimeRulesNextMealAndFixedType() {
         assertTrue(selectionModeExplanation(SelectionMode.AUTO).contains("시간 규칙"))
         assertTrue(selectionModeExplanation(SelectionMode.NEXT).contains("식사 시간"))
